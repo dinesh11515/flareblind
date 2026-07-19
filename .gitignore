@@ -6,3 +6,8 @@ typechain-types/
 dist/
 coverage/
 .DS_Store
+
+# local tool config
+CLAUDE.md
+.claude/
+Untitled
