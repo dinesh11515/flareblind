@@ -46,6 +46,12 @@ export class PoolClient {
     return { id: Number(id), phase: Number(phase), endsAt, orders: Number(orders) };
   }
 
+  /** The venue reasons in block.timestamp; so must the engine. */
+  async chainNow(): Promise<bigint> {
+    const block = await this.provider.getBlock("latest");
+    return BigInt(block!.timestamp);
+  }
+
   async closeBatch(): Promise<void> {
     const tx = await this.pool.closeBatch();
     await tx.wait();

@@ -74,7 +74,7 @@ async function tick(
   const info = await client.batchInfo();
 
   if (info.phase === Phase.Open) {
-    const now = BigInt(Math.floor(Date.now() / 1000));
+    const now = await client.chainNow();
     if (now >= info.endsAt) {
       console.log(`batch ${info.id}: window elapsed (${info.orders} orders), closing`);
       await client.closeBatch();
