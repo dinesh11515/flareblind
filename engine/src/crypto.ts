@@ -1,27 +1,16 @@
 import sodium from "libsodium-wrappers";
 
-/**
- * Order sealing.
- *
- * Traders encrypt orders client-side with a libsodium sealed box
- * (X25519 + XSalsa20-Poly1305) to the enclave's public key. Sealed boxes use
- * an ephemeral sender key, so ciphertexts are non-deterministic and nothing
- * about the order — side, size, or price — is derivable without the enclave's
- * secret key, which never leaves the TEE.
- */
-
 export interface EnclaveKeypair {
-  publicKey: Uint8Array; // 32 bytes, registered onchain
-  privateKey: Uint8Array; // never leaves the enclave
+  publicKey: Uint8Array;
+  privateKey: Uint8Array;
 }
 
-/** Plaintext order, bound to its author and batch to prevent replay. */
 export interface OrderPayload {
-  trader: string; // must equal the onchain submitter
-  batchId: number; // must equal the batch it was submitted to
+  trader: string;
+  batchId: number;
   side: "buy" | "sell";
-  amountBase: string; // base-wei, decimal string
-  limitPrice: string; // 1e18-scaled quote per base-wei, decimal string
+  amountBase: string;
+  limitPrice: string;
 }
 
 export async function ready(): Promise<void> {
@@ -33,7 +22,6 @@ export function generateEnclaveKeypair(): EnclaveKeypair {
   return { publicKey: kp.publicKey, privateKey: kp.privateKey };
 }
 
-/** Rebuild a keypair from a fixed x25519 secret (dev restarts only). */
 export function keypairFromSecret(secretHex: string): EnclaveKeypair {
   const privateKey = fromHex(secretHex);
   return { publicKey: sodium.crypto_scalarmult_base(privateKey), privateKey };
@@ -44,11 +32,6 @@ export function sealOrder(order: OrderPayload, enclavePublicKey: Uint8Array): Ui
   return sodium.crypto_box_seal(plaintext, enclavePublicKey);
 }
 
-/**
- * Open and validate a sealed order. Returns null for anything that does not
- * decrypt to a well-formed order — tampered boxes, wrong recipient, junk
- * submissions. The venue never reverts on a bad ciphertext; it drops it.
- */
 export function openOrder(sealed: Uint8Array, keypair: EnclaveKeypair): OrderPayload | null {
   let plaintext: Uint8Array;
   try {

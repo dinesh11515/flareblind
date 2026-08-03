@@ -1,0 +1,123 @@
+export const poolAbi = [
+  {
+    type: "function",
+    name: "base",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "quote",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "batchInfo",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "id", type: "uint64" },
+      { name: "phase", type: "uint8" },
+      { name: "endsAt", type: "uint256" },
+      { name: "orders", type: "uint32" },
+    ],
+  },
+  {
+    type: "function",
+    name: "baseBalanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "quoteBalanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "enclaveEncryptionKey",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "teeSigner",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "teeAttestationDigest",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "maxDeviationBps",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "oracle",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "deposit",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "isBase", type: "bool" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "withdraw",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "isBase", type: "bool" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "submitOrder",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "sealedOrder", type: "bytes" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "closeBatch",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "event",
+    name: "BatchSettled",
+    inputs: [
+      { name: "batchId", type: "uint64", indexed: true },
+      { name: "clearingPrice", type: "uint256", indexed: false },
+      { name: "matchedBase", type: "uint256", indexed: false },
+      { name: "fillCount", type: "uint32", indexed: false },
+    ],
+  },
+] as const;
+
+export const Phase = { Open: 0, Sealing: 1 } as const;

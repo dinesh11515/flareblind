@@ -1,31 +1,41 @@
-import { useEffect, useState } from "react";
-import { shortHex, Phase, type VenueHandles } from "../lib/venue";
-import type { VenueStatus } from "../App";
+import { useState } from "react";
+import { defaultPoolAddress } from "../lib/network";
+import { shortHex } from "../lib/format";
+import type { PoolTokens, VenueStatus } from "../types";
 
 export function VenuePanel(props: {
   status: VenueStatus | null;
-  venue: VenueHandles | null;
+  tokens: PoolTokens | undefined;
   poolAddress: string;
   onPoolAddress: (a: string) => void;
-  onCloseBatch: () => void;
-  busy: string | null;
 }) {
-  const { status, venue, poolAddress, onPoolAddress, onCloseBatch, busy } = props;
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const remaining = status ? Number(status.endsAt) - now : 0;
-  const closable = status?.phase === Phase.Open && remaining <= 0;
+  const { status, tokens, poolAddress, onPoolAddress } = props;
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const deployed = defaultPoolAddress();
+  const offDeployed =
+    deployed.length > 0 &&
+    poolAddress.toLowerCase() !== deployed.toLowerCase();
 
   return (
-    <section className="panel">
-      <h2>Venue</h2>
+    <section className="panel panel-compact">
+      <div className="panel-head">
+        <div>
+          <h2>Market</h2>
+          <p className="panel-sub">
+            {tokens
+              ? `${tokens.baseSymbol} / ${tokens.quoteSymbol} sealed-order auction`
+              : "Connect a pool to trade"}
+          </p>
+        </div>
+        {tokens && (
+          <span className="pair mono">
+            {tokens.baseSymbol}/{tokens.quoteSymbol}
+          </span>
+        )}
+      </div>
+
       <label className="field">
-        <span>Pool address</span>
+        <span>Pool contract</span>
         <input
           className="mono"
           value={poolAddress}
@@ -34,77 +44,61 @@ export function VenuePanel(props: {
           onChange={(e) => onPoolAddress(e.target.value.trim())}
         />
       </label>
+      {offDeployed && (
+        <button
+          type="button"
+          className="btn ghost sm"
+          onClick={() => onPoolAddress(deployed)}
+        >
+          Reset to deployed Coston2 pool
+        </button>
+      )}
 
-      {status && venue && (
+      {status && (
         <>
-          <div className="rows">
-            <div className="row">
-              <span className="label">Batch</span>
-              <span className="mono">#{status.batchId}</span>
-            </div>
-            <div className="row">
-              <span className="label">Phase</span>
-              <span className={`badge ${status.phase === Phase.Open ? "open" : "sealing"}`}>
-                {status.phase === Phase.Open ? "OPEN" : "SEALING"}
-              </span>
-            </div>
-            <div className="row">
-              <span className="label">{status.phase === Phase.Open ? "Closes in" : "Awaiting enclave"}</span>
-              <span className="mono">
-                {status.phase === Phase.Open ? formatCountdown(remaining) : "…"}
-              </span>
-            </div>
-            <div className="row">
-              <span className="label">Sealed orders</span>
-              <span className="mono">{status.orders}</span>
-            </div>
-            <div className="row">
-              <span className="label">Price band</span>
-              <span className="mono">±{(Number(status.maxDeviationBps) / 100).toFixed(2)}%</span>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="advanced-toggle"
+            aria-expanded={showAdvanced}
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            <span>{showAdvanced ? "Hide" : "Show"} TEE / enclave details</span>
+            <span className="mono" aria-hidden="true">
+              {showAdvanced ? "−" : "+"}
+            </span>
+          </button>
 
-          {closable && (
-            <button className="btn" onClick={onCloseBatch} disabled={busy !== null}>
-              {busy === "close" ? "Closing…" : "Close batch"}
-            </button>
+          {showAdvanced && (
+            <div className="advanced-block">
+              <div className="rows">
+                <div className="row">
+                  <span className="label">Sealing key</span>
+                  <span className="mono" title={status.enclaveKey}>
+                    {shortHex(status.enclaveKey, 8)}
+                  </span>
+                </div>
+                <div className="row">
+                  <span className="label">Settlement signer</span>
+                  <span className="mono" title={status.teeSigner}>
+                    {shortHex(status.teeSigner, 8)}
+                  </span>
+                </div>
+                <div className="row">
+                  <span className="label">Attestation</span>
+                  <span className="mono" title={status.attestationDigest}>
+                    {shortHex(status.attestationDigest, 8)}
+                  </span>
+                </div>
+              </div>
+              <p className="note">
+                Orders encrypt to the sealing key in your browser. The contract
+                only accepts settlements signed by this attested enclave, within
+                the FTSO band.
+              </p>
+            </div>
           )}
-
-          <h3>Enclave</h3>
-          <div className="rows">
-            <div className="row">
-              <span className="label">Sealing key</span>
-              <span className="mono" title={status.enclaveKey}>
-                {shortHex(status.enclaveKey, 8)}
-              </span>
-            </div>
-            <div className="row">
-              <span className="label">Settlement signer</span>
-              <span className="mono" title={status.teeSigner}>
-                {shortHex(status.teeSigner, 8)}
-              </span>
-            </div>
-            <div className="row">
-              <span className="label">Attestation</span>
-              <span className="mono" title={status.attestationDigest}>
-                {shortHex(status.attestationDigest, 8)}
-              </span>
-            </div>
-          </div>
-          <p className="note">
-            Orders are sealed to the enclave key in your browser. The venue contract only
-            accepts settlements signed by the attested enclave, conserved to the wei and
-            priced within the FTSO band.
-          </p>
         </>
       )}
     </section>
   );
-}
-
-function formatCountdown(seconds: number): string {
-  if (seconds <= 0) return "00:00";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }

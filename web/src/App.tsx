@@ -1,323 +1,162 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Contract, formatUnits, parseUnits } from "ethers";
-import {
-  connectWallet,
-  loadVenue,
-  shortAddress,
-  ORACLE_ABI,
-  Phase,
-  type VenueHandles,
-  type Wallet,
-} from "./lib/venue";
-import { sealOrder } from "./lib/sealing";
-import { VenuePanel } from "./components/VenuePanel";
-import { BalancesPanel } from "./components/BalancesPanel";
-import { OrderTicket } from "./components/OrderTicket";
-import { SettlementsTable } from "./components/SettlementsTable";
-
-export interface VenueStatus {
-  batchId: number;
-  phase: number;
-  endsAt: bigint;
-  orders: number;
-  referencePrice: bigint | null;
-  maxDeviationBps: bigint;
-  enclaveKey: string;
-  teeSigner: string;
-  attestationDigest: string;
-}
-
-export interface Balances {
-  walletBase: bigint;
-  walletQuote: bigint;
-  venueBase: bigint;
-  venueQuote: bigint;
-}
-
-export interface Settlement {
-  batchId: number;
-  clearingPrice: bigint;
-  matchedBase: bigint;
-  fillCount: number;
-}
-
-export interface LocalOrder {
-  batchId: number;
-  side: "buy" | "sell";
-  amount: string;
-  limit: string;
-  ciphertext: string;
-  at: number;
-}
-
-const POOL_KEY = "stillwater.pool";
-const ORDERS_KEY = "stillwater.orders";
+import { useEffect, useMemo, useState } from "react";
+import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { formatUnits } from "viem";
+import { useAccount, useSwitchChain } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { BrandMark } from "./components/BrandMark";
+import { Landing } from "./components/Landing";
+import { WalletButton } from "./components/WalletButton";
+import { usePoolTokens } from "./hooks/usePoolTokens";
+import { useVenueStatus } from "./hooks/useVenueStatus";
+import { COSTON2_ID, isCoston2 } from "./lib/network";
+import { usePoolAddress } from "./lib/pool";
+import { formatAppError } from "./lib/errors";
+import { Swap } from "./pages/Swap";
+import { flareTestnet } from "./wagmi";
 
 export default function App() {
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [poolAddress, setPoolAddress] = useState(localStorage.getItem(POOL_KEY) ?? "");
-  const [venue, setVenue] = useState<VenueHandles | null>(null);
-  const [status, setStatus] = useState<VenueStatus | null>(null);
-  const [balances, setBalances] = useState<Balances | null>(null);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [orders, setOrders] = useState<LocalOrder[]>(
-    JSON.parse(localStorage.getItem(ORDERS_KEY) ?? "[]")
-  );
+  const navigate = useNavigate();
+  const { address, chainId, isConnected } = useAccount();
+  const { openConnectModal } = useConnectModal();
+  const { switchChainAsync, isPending: switching } = useSwitchChain();
+  const { poolAddress, pool, setPoolAddress, poolError, clearPoolError } =
+    usePoolAddress();
+  const { data: tokens } = usePoolTokens(pool);
+  const { data: status } = useVenueStatus(pool);
+  const [pendingEnter, setPendingEnter] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
 
-  const connect = useCallback(async () => {
-    try {
-      setError(null);
-      setWallet(await connectWallet());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  // Attach to the venue whenever wallet + address are available.
   useEffect(() => {
-    if (!wallet || !poolAddress.match(/^0x[0-9a-fA-F]{40}$/)) {
-      setVenue(null);
+    if (pendingEnter && isConnected) {
+      setPendingEnter(false);
+      navigate("/swap");
+    }
+  }, [pendingEnter, isConnected, navigate]);
+
+  useEffect(() => {
+    if (poolError) setError(poolError);
+  }, [poolError]);
+
+  const enterVenue = () => {
+    clearPoolError();
+    if (isConnected) {
+      navigate("/swap");
       return;
     }
-    localStorage.setItem(POOL_KEY, poolAddress);
-    loadVenue(wallet, poolAddress)
-      .then(setVenue)
-      .catch((err) => setError(`venue: ${err.message ?? err}`));
-  }, [wallet, poolAddress]);
+    setPendingEnter(true);
+    openConnectModal?.();
+  };
 
-  const refresh = useCallback(async () => {
-    if (!wallet || !venue) return;
+  const wrongNetwork = isConnected && !isCoston2(chainId);
+
+  const switchNetwork = async () => {
+    setError(null);
     try {
-      const { pool } = venue;
-      const [info, enclaveKey, teeSigner, digest, deviation] = await Promise.all([
-        pool.batchInfo(),
-        pool.enclaveEncryptionKey(),
-        pool.teeSigner(),
-        pool.teeAttestationDigest(),
-        pool.maxDeviationBps(),
-      ]);
-      let referencePrice: bigint | null = null;
-      try {
-        const oracle = new Contract(await pool.oracle(), ORACLE_ABI, wallet.provider);
-        const [price] = await oracle.latestPrice.staticCallResult();
-        referencePrice = price;
-      } catch {
-        referencePrice = null;
-      }
-      setStatus({
-        batchId: Number(info.id),
-        phase: Number(info.phase),
-        endsAt: info.endsAt,
-        orders: Number(info.orders),
-        referencePrice,
-        maxDeviationBps: deviation,
-        enclaveKey,
-        teeSigner,
-        attestationDigest: digest,
-      });
-      const [walletBase, walletQuote, venueBase, venueQuote] = await Promise.all([
-        venue.base.balanceOf(wallet.address),
-        venue.quote.balanceOf(wallet.address),
-        pool.baseBalanceOf(wallet.address),
-        pool.quoteBalanceOf(wallet.address),
-      ]);
-      setBalances({ walletBase, walletQuote, venueBase, venueQuote });
-
-      const events = await pool.queryFilter(pool.filters.BatchSettled(), 0, "latest");
-      setSettlements(
-        events
-          .map((log) => {
-            const args = (log as unknown as { args: [bigint, bigint, bigint, bigint] }).args;
-            return {
-              batchId: Number(args[0]),
-              clearingPrice: args[1],
-              matchedBase: args[2],
-              fillCount: Number(args[3]),
-            };
-          })
-          .filter((s) => s.fillCount > 0 || s.matchedBase > 0n)
-          .reverse()
-          .slice(0, 24)
-      );
-      setError(null);
+      await switchChainAsync({ chainId: COSTON2_ID });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatAppError(err));
     }
-  }, [wallet, venue]);
-
-  useEffect(() => {
-    if (!venue) return;
-    refresh();
-    const timer = setInterval(refresh, 4000);
-    return () => clearInterval(timer);
-  }, [venue, refresh]);
-
-  const run = useCallback(
-    async (label: string, action: () => Promise<void>) => {
-      setBusy(label);
-      setError(null);
-      try {
-        await action();
-        await refresh();
-      } catch (err) {
-        const e = err as { shortMessage?: string; message?: string };
-        setError(e.shortMessage ?? e.message ?? String(err));
-      } finally {
-        setBusy(null);
-      }
-    },
-    [refresh]
-  );
-
-  const deposit = (isBase: boolean, human: string) =>
-    run(isBase ? "deposit-base" : "deposit-quote", async () => {
-      if (!venue || !wallet) return;
-      const token = isBase ? venue.base : venue.quote;
-      const amount = parseUnits(human, isBase ? venue.baseDecimals : venue.quoteDecimals);
-      const allowance: bigint = await token.allowance(wallet.address, venue.pool);
-      if (allowance < amount) {
-        await (await token.approve(venue.pool, amount)).wait();
-      }
-      await (await venue.pool.deposit(isBase, amount)).wait();
-    });
-
-  const withdraw = (isBase: boolean, human: string) =>
-    run(isBase ? "withdraw-base" : "withdraw-quote", async () => {
-      if (!venue) return;
-      const amount = parseUnits(human, isBase ? venue.baseDecimals : venue.quoteDecimals);
-      await (await venue.pool.withdraw(isBase, amount)).wait();
-    });
-
-  const mintTestFunds = () =>
-    run("mint", async () => {
-      if (!venue || !wallet) return;
-      await (
-        await venue.base.mint(wallet.address, parseUnits("10000", venue.baseDecimals))
-      ).wait();
-      await (
-        await venue.quote.mint(wallet.address, parseUnits("25000", venue.quoteDecimals))
-      ).wait();
-    });
-
-  const closeBatch = () =>
-    run("close", async () => {
-      if (!venue) return;
-      await (await venue.pool.closeBatch()).wait();
-    });
-
-  const submit = (side: "buy" | "sell", amount: string, limit: string) =>
-    run("submit", async () => {
-      if (!venue || !wallet || !status) return;
-      const amountBase = parseUnits(amount, venue.baseDecimals);
-      const limitPrice = parseUnits(limit, 18);
-      const ciphertext = await sealOrder(
-        {
-          trader: wallet.address,
-          batchId: status.batchId,
-          side,
-          amountBase: amountBase.toString(),
-          limitPrice: limitPrice.toString(),
-        },
-        status.enclaveKey
-      );
-      await (await venue.pool.submitOrder(ciphertext)).wait();
-      const record: LocalOrder = {
-        batchId: status.batchId,
-        side,
-        amount,
-        limit,
-        ciphertext,
-        at: Date.now(),
-      };
-      setOrders((prev) => {
-        const next = [record, ...prev].slice(0, 20);
-        localStorage.setItem(ORDERS_KEY, JSON.stringify(next));
-        return next;
-      });
-    });
+  };
 
   const priceFmt = useMemo(
     () => (p: bigint) => Number(formatUnits(p, 18)).toFixed(4),
-    []
+    [],
   );
+
+  const toastError = error;
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="wordmark">
-          STILLWATER
-          <span className="tagline">sealed-order venue on flare</span>
+      <div className="ambient" aria-hidden="true">
+        <div className="ambient-wave ambient-wave-a" />
+        <div className="ambient-wave ambient-wave-b" />
+      </div>
+
+      {wrongNetwork && (
+        <div className="network-banner" role="status">
+          <span>
+            Switch to <strong>{flareTestnet.name}</strong> to trade on the
+            deployed venue.
+          </span>
+          <button
+            className="btn primary sm"
+            disabled={switching}
+            onClick={switchNetwork}
+          >
+            {switching ? "Switching…" : "Switch network"}
+          </button>
         </div>
-        <div className="topbar-right">
-          {status?.referencePrice != null && venue && (
-            <div className="ref-price">
-              <span className="label">FTSO {venue.baseSymbol}/{venue.quoteSymbol}</span>
-              <span className="mono">{priceFmt(status.referencePrice)}</span>
+      )}
+
+      <header className="topbar">
+        <div className="topbar-inner">
+          <Link to="/" className="brand">
+            <BrandMark size={38} />
+            <div className="brand-text">
+              <span className="brand-name">Flareblind</span>
+              <span className="tagline">Size-blind FXRP auctions on Flare</span>
             </div>
-          )}
-          {wallet ? (
-            <div className="wallet mono" title={wallet.address}>
-              <span className="dot" />
-              {shortAddress(wallet.address)} · chain {wallet.chainId.toString()}
-            </div>
-          ) : (
-            <button className="btn primary" onClick={connect}>
-              Connect wallet
-            </button>
-          )}
+          </Link>
+          <div className="topbar-right">
+            {status?.referencePrice != null && tokens && (
+              <div className="chip ref-price">
+                <span className="label">FTSO</span>
+                <span className="mono">
+                  {priceFmt(status.referencePrice)} {tokens.quoteSymbol}
+                </span>
+              </div>
+            )}
+            <WalletButton />
+          </div>
         </div>
       </header>
 
-      {!wallet ? (
-        <main className="empty-state">
-          <h1>Trade size without making ripples.</h1>
-          <p>
-            Stillwater is a sealed-order batch venue for FXRP. Orders are encrypted to a
-            key that exists only inside a trusted execution environment, cleared in
-            uniform-price auctions, and settled onchain under FTSO price bounds.
-          </p>
-          <button className="btn primary large" onClick={connect}>
-            Connect wallet to begin
-          </button>
-        </main>
-      ) : (
-        <main className="grid">
-          <div className="col">
-            <VenuePanel
-              status={status}
-              venue={venue}
+      <Routes>
+        <Route path="/" element={<Landing onEnter={enterVenue} />} />
+        <Route
+          path="/swap"
+          element={
+            <Swap
+              address={address}
               poolAddress={poolAddress}
+              pool={pool}
               onPoolAddress={setPoolAddress}
-              onCloseBatch={closeBatch}
-              busy={busy}
+              onConnect={() => openConnectModal?.()}
+              onError={setError}
             />
-            <BalancesPanel
-              venue={venue}
-              balances={balances}
-              busy={busy}
-              onDeposit={deposit}
-              onWithdraw={withdraw}
-              onMint={mintTestFunds}
-            />
-          </div>
-          <div className="col">
-            <OrderTicket
-              venue={venue}
-              status={status}
-              orders={orders}
-              busy={busy}
-              onSubmit={submit}
-            />
-          </div>
-          <div className="col">
-            <SettlementsTable settlements={settlements} venue={venue} />
-          </div>
-        </main>
-      )}
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
 
-      {error && <div className="toast error">{error}</div>}
+      {toastError && (
+        <div className="toast error" role="alert">
+          <span>{toastError}</span>
+          <button
+            className="toast-dismiss"
+            onClick={() => {
+              setError(null);
+              clearPoolError();
+            }}
+            aria-label="Dismiss error"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M3 3l8 8M11 3l-8 8"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

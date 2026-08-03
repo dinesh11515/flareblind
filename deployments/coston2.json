@@ -1,0 +1,23 @@
+{
+  "network": "coston2",
+  "chainId": 114,
+  "deployedAt": "2026-08-03",
+  "deployer": "0xf18F307B406980a256E22f0093137DAba48bFA93",
+  "contracts": {
+    "FlareblindPool": "0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0",
+    "FtsoV2Adapter": "0x609328dFA6066E43b5B3e15A7ad103Ba7985116B"
+  },
+  "tokens": {
+    "base": "0x0b6A3645c240605887a5532109323A3E12273dc7",
+    "quote": "0xC1A5B41512496B80903D1f32d6dEa3a73212E71F"
+  },
+  "enclave": {
+    "signer": "0x1244a89551bc4f1B101C95D8D68F510480c02bfC",
+    "encryptionKey": "0xdfdccf6804353fab63751b089300c70702ab8f8757c3d0d345c0db666ccf8672",
+    "attestationDigest": "0xda294a6764b472ef2cbc86869ce116cc8777e41187ffd7d301c7fd15dd7be51e",
+    "mode": "dev"
+  },
+  "deployBlock": 33567293,
+  "explorer": "https://coston2-explorer.flare.network/address/0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0",
+  "supersedes": "0xCFb131E94B6485C851C8F06c3a7DaD922Ca51B6C"
+}

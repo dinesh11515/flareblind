@@ -3,18 +3,6 @@ import { ready, generateEnclaveKeypair, toHex } from "../src/crypto.js";
 import { collectAttestation } from "../src/attestation.js";
 import { POOL_ABI } from "../src/chain.js";
 
-/**
- * Operator bootstrap: generates the enclave keypair and settlement signer,
- * registers both on the venue, and prints the environment for `npm start`.
- *
- *   RPC_URL       chain endpoint (default local hardhat node)
- *   POOL_ADDRESS  venue address (required)
- *   OWNER_KEY     venue owner key (defaults to hardhat account #0)
- *
- * In production this runs inside Confidential Space: keys are generated in
- * the enclave, the attestation token binds them to the container image, and
- * the owner registers the enclave from the published token.
- */
 const HARDHAT_ACCOUNT_0 =
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
@@ -30,7 +18,12 @@ async function main(): Promise<void> {
   if (!poolAddress) throw new Error("POOL_ADDRESS is required");
 
   const provider = new JsonRpcProvider(rpcUrl);
-  const owner = new NonceManager(new Wallet(process.env.OWNER_KEY ?? HARDHAT_ACCOUNT_0, provider));
+  const chainId = (await provider.getNetwork()).chainId;
+  const ownerKey = process.env.OWNER_KEY ?? HARDHAT_ACCOUNT_0;
+  if (chainId !== 31337n && !process.env.OWNER_KEY) {
+    throw new Error("OWNER_KEY is required on live networks");
+  }
+  const owner = new NonceManager(new Wallet(ownerKey, provider));
   const pool = new Contract(poolAddress, [...POOL_ABI, ...OWNER_SETTERS], owner);
 
   const tee = Wallet.createRandom().connect(provider);

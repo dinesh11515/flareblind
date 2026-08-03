@@ -7,69 +7,39 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 
-/// @title StillwaterPool — sealed-order batch trading venue
-///
-/// Traders hold venue balances of a base/quote pair (FXRP / USD stable) and
-/// submit orders as ciphertexts encrypted to a key that only exists inside the
-/// matching engine's TEE. Orders are cleared in discrete uniform-price batch
-/// auctions computed by the enclave, then settled here.
-///
-/// The contract does not trust the enclave blindly. At settlement it enforces:
-///   1. the caller is the registered (attested) enclave signer,
-///   2. matched base volume is exactly conserved (sum buys == sum sells),
-///   3. the clearing price sits within `maxDeviationBps` of the FTSO
-///      reference price, so a compromised operator cannot clear at an
-///      off-market price,
-///   4. every fill is fully funded by the trader's frozen venue balance.
-///
-/// Balances are frozen (withdrawals blocked) only while a batch is Sealing,
-/// i.e. between batch close and settlement.
-contract StillwaterPool is Ownable, ReentrancyGuard {
+contract FlareblindPool is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    // ---------------------------------------------------------------- types
-
     enum Phase {
-        Open, // accepting sealed orders and withdrawals
-        Sealing // batch closed, enclave computing; balances frozen
+        Open,
+        Sealing
     }
 
     struct Fill {
         address trader;
-        bool isBuy; // true: pays quote, receives base
-        uint128 baseAmount; // matched amount in base-wei
+        bool isBuy;
+        uint128 baseAmount;
     }
 
-    // ------------------------------------------------------------ constants
-
     uint256 public constant PRICE_SCALE = 1e18;
-    /// Hard cap on how loose the owner can set the oracle deviation bound.
-    uint256 public constant MAX_DEVIATION_BPS_CAP = 1000; // 10%
+
+    uint256 public constant MAX_DEVIATION_BPS_CAP = 1000;
     uint256 public constant MAX_SEALED_ORDER_BYTES = 512;
     uint32 public constant MAX_ORDERS_PER_BATCH = 512;
 
-    // ------------------------------------------------------------ immutable
-
     IERC20 public immutable base;
     IERC20 public immutable quote;
-
-    // -------------------------------------------------------------- config
 
     IPriceOracle public oracle;
     uint256 public maxDeviationBps;
     uint256 public maxOracleAge;
     uint256 public batchDuration;
 
-    /// Address derived from the signing key generated inside the enclave.
     address public teeSigner;
-    /// keccak256 of the Confidential Space attestation token binding
-    /// `teeSigner` and `enclaveEncryptionKey` to a measured workload image.
-    bytes32 public teeAttestationDigest;
-    /// X25519 public key traders seal orders to. Private half never leaves
-    /// the enclave.
-    bytes32 public enclaveEncryptionKey;
 
-    // --------------------------------------------------------------- state
+    bytes32 public teeAttestationDigest;
+
+    bytes32 public enclaveEncryptionKey;
 
     uint64 public currentBatchId;
     uint256 public currentBatchEndsAt;
@@ -79,11 +49,7 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
     mapping(address => uint256) public baseBalanceOf;
     mapping(address => uint256) public quoteBalanceOf;
 
-    /// Rounding surplus: buyers pay ceil, sellers receive floor, so the
-    /// venue can only accumulate dust, never owe it.
     uint256 public quoteDust;
-
-    // -------------------------------------------------------------- events
 
     event Deposited(address indexed trader, bool indexed isBase, uint256 amount);
     event Withdrawn(address indexed trader, bool indexed isBase, uint256 amount);
@@ -105,8 +71,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
     event ParamsUpdated(uint256 maxDeviationBps, uint256 maxOracleAge, uint256 batchDuration);
     event OracleUpdated(address oracle);
 
-    // -------------------------------------------------------------- errors
-
     error WrongPhase();
     error BatchStillOpen();
     error BatchIdMismatch();
@@ -121,8 +85,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
     error StaleOraclePrice(uint256 priceTimestamp);
     error NonZeroPriceForEmptyBatch();
     error DeviationCapExceeded();
-
-    // --------------------------------------------------------- constructor
 
     constructor(
         IERC20 base_,
@@ -146,8 +108,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         phase = Phase.Open;
     }
 
-    // ------------------------------------------------------------ balances
-
     function deposit(bool isBase, uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
         IERC20 token = isBase ? base : quote;
@@ -157,8 +117,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         emit Deposited(msg.sender, isBase, amount);
     }
 
-    /// @notice Withdraw free venue balance. Blocked while a batch is Sealing
-    ///         so the enclave can validate orders against stable balances.
     function withdraw(bool isBase, uint256 amount) external nonReentrant {
         if (phase != Phase.Open) revert WrongPhase();
         if (amount == 0) revert ZeroAmount();
@@ -176,12 +134,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         emit Withdrawn(msg.sender, isBase, amount);
     }
 
-    // -------------------------------------------------------------- orders
-
-    /// @notice Submit a sealed order to the current batch.
-    /// @dev The ciphertext lives only in calldata/logs; the contract stores
-    ///      nothing per order. Requiring a nonzero venue balance is a cheap
-    ///      spam brake — unfunded orders are dropped by the enclave anyway.
     function submitOrder(bytes calldata sealedOrder) external {
         if (phase != Phase.Open) revert WrongPhase();
         if (sealedOrder.length == 0 || sealedOrder.length > MAX_SEALED_ORDER_BYTES) {
@@ -196,10 +148,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         emit OrderSubmitted(currentBatchId, msg.sender, index, sealedOrder);
     }
 
-    // --------------------------------------------------------------- batch
-
-    /// @notice Close the current batch once its window has elapsed.
-    ///         Anyone may call. Empty batches roll over immediately.
     function closeBatch() external {
         if (phase != Phase.Open) revert WrongPhase();
         if (block.timestamp < currentBatchEndsAt) revert BatchStillOpen();
@@ -216,12 +164,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         }
     }
 
-    /// @notice Settle a sealed batch with the enclave's clearing result.
-    /// @param batchId       Batch being settled; must match current.
-    /// @param clearingPrice Uniform price (1e18-scaled quote per base), or 0
-    ///                      for a batch with no crossing volume.
-    /// @param fills         Matched legs. Buy legs pay ceil(base * price),
-    ///                      sell legs receive floor(base * price).
     function settleBatch(
         uint64 batchId,
         uint256 clearingPrice,
@@ -248,7 +190,7 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
                 if (f.baseAmount == 0) revert ZeroAmount();
 
                 if (f.isBuy) {
-                    // ceil so the venue never under-collects
+
                     uint256 cost =
                         (uint256(f.baseAmount) * clearingPrice + PRICE_SCALE - 1) / PRICE_SCALE;
                     uint256 qb = quoteBalanceOf[f.trader];
@@ -270,7 +212,7 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
 
             if (buyBase != sellBase) revert VolumeNotConserved(buyBase, sellBase);
             matchedBase = buyBase;
-            // ceil-vs-floor rounding surplus; provably non-negative
+
             quoteDust += quoteIn - quoteOut;
         }
 
@@ -295,10 +237,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         }
     }
 
-    // --------------------------------------------------------------- admin
-
-    /// @notice Register the enclave's onchain signer together with the digest
-    ///         of the attestation token that vouches for it.
     function setTeeSigner(address signer, bytes32 attestationDigest) external onlyOwner {
         teeSigner = signer;
         teeAttestationDigest = attestationDigest;
@@ -332,8 +270,6 @@ contract StillwaterPool is Ownable, ReentrancyGuard {
         quoteDust = 0;
         quote.safeTransfer(to, amount);
     }
-
-    // --------------------------------------------------------------- views
 
     function balancesOf(address trader) external view returns (uint256, uint256) {
         return (baseBalanceOf[trader], quoteBalanceOf[trader]);

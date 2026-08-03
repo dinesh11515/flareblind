@@ -1,28 +1,14 @@
 import http from "node:http";
 import { createHash } from "node:crypto";
 
-/**
- * Workload attestation.
- *
- * In production the engine runs in GCP Confidential Space (Intel TDX). The
- * container launcher exposes a local socket that mints OIDC attestation
- * tokens signed by Google, with our custom nonces binding the enclave's
- * signing address and encryption key to the measured container image. The
- * token is published alongside the venue and its keccak digest is registered
- * onchain with the signer, so anyone can verify which code holds the keys.
- *
- * Outside Confidential Space the engine runs in dev mode and says so: the
- * digest commits to the same key material but attests nothing.
- */
-
 const LAUNCHER_SOCKET = "/run/container_launcher/teeserver.sock";
-const TOKEN_AUDIENCE = "https://stillwater.exchange";
+const TOKEN_AUDIENCE = "https://flareblind.exchange";
 
 export type AttestationMode = "confidential-space" | "dev";
 
 export interface AttestationInfo {
   mode: AttestationMode;
-  /** keccak-free stand-in: sha256 digest of the token (or dev preimage). */
+
   digest: string;
   token?: string;
 }

@@ -1,11 +1,5 @@
 import sodium from "libsodium-wrappers";
 
-/**
- * Client-side order sealing. Mirrors the enclave's expectations exactly:
- * a libsodium sealed box (X25519 + XSalsa20-Poly1305) over a JSON payload
- * bound to the submitting trader and the current batch.
- */
-
 export interface OrderDraft {
   trader: string;
   batchId: number;

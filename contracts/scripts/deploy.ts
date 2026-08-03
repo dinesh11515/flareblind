@@ -1,41 +1,50 @@
 import { ethers, network } from "hardhat";
 
-/**
- * Deploys the venue.
- *
- * Local/dev networks get mock tokens and a mock oracle. Coston2 and Flare
- * expect real addresses via environment:
- *
- *   BASE_TOKEN       FXRP (or FTestXRP on Coston2)
- *   QUOTE_TOKEN      USD stable used as quote
- *   FEED_ID          FTSOv2 feed id, default XRP/USD
- *   TEE_SIGNER       enclave settlement address (rotatable later)
- *   ENCLAVE_PUBKEY   enclave x25519 key, 0x + 64 hex
- */
 const FLARE_CONTRACT_REGISTRY = "0xaD67FE66660Fb8dFE9d6b1b4240d8650e30F6019";
 const XRP_USD_FEED_ID = "0x015852502f55534400000000000000000000000000";
 
-const BATCH_DURATION = 300; // 5 minute batches
+const COSTON2_BASE = "0x0b6A3645c240605887a5532109323A3E12273dc7";
+const COSTON2_QUOTE = "0xC1A5B41512496B80903D1f32d6dEa3a73212E71F";
+
+const BATCH_DURATION = 300;
 const MAX_DEVIATION_BPS = 200;
 const MAX_ORACLE_AGE = 600;
+
+const EXPLORER: Record<string, string> = {
+  coston2: "https://coston2-explorer.flare.network",
+  flare: "https://flare-explorer.flare.network",
+};
 
 async function main(): Promise<void> {
   const [deployer] = await ethers.getSigners();
   const live = network.name === "coston2" || network.name === "flare";
   console.log(`network ${network.name}, deployer ${deployer.address}`);
 
+  if (live) {
+    const chainId = (await ethers.provider.getNetwork()).chainId;
+    const expected = network.name === "coston2" ? 114n : 14n;
+    if (chainId !== expected) {
+      throw new Error(`chain id ${chainId} != ${expected} for ${network.name}`);
+    }
+  }
+
   let baseAddress: string;
   let quoteAddress: string;
   let oracleAddress: string;
 
   if (live) {
-    baseAddress = required("BASE_TOKEN");
-    quoteAddress = required("QUOTE_TOKEN");
+    baseAddress = tokenAddress("BASE_TOKEN", network.name === "coston2" ? COSTON2_BASE : undefined);
+    quoteAddress = tokenAddress("QUOTE_TOKEN", network.name === "coston2" ? COSTON2_QUOTE : undefined);
+    const baseDecimals = await decimalsOf(baseAddress);
+    const quoteDecimals = await decimalsOf(quoteAddress);
+    await assertToken(baseAddress, network.name === "coston2" ? "FTestXRP" : undefined, 6, baseDecimals);
+    await assertToken(quoteAddress, network.name === "coston2" ? "USD₮0" : undefined, 6, quoteDecimals);
+
     const adapter = await ethers.deployContract("FtsoV2Adapter", [
       FLARE_CONTRACT_REGISTRY,
       process.env.FEED_ID ?? XRP_USD_FEED_ID,
-      await decimalsOf(baseAddress),
-      await decimalsOf(quoteAddress),
+      baseDecimals,
+      quoteDecimals,
     ]);
     await adapter.waitForDeployment();
     oracleAddress = await adapter.getAddress();
@@ -59,7 +68,7 @@ async function main(): Promise<void> {
     console.log(`MockOracle      ${oracleAddress}`);
   }
 
-  const pool = await ethers.deployContract("StillwaterPool", [
+  const pool = await ethers.deployContract("FlareblindPool", [
     baseAddress,
     quoteAddress,
     oracleAddress,
@@ -69,7 +78,8 @@ async function main(): Promise<void> {
     deployer.address,
   ]);
   await pool.waitForDeployment();
-  console.log(`StillwaterPool  ${await pool.getAddress()}`);
+  const poolAddress = await pool.getAddress();
+  console.log(`FlareblindPool  ${poolAddress}`);
 
   if (process.env.TEE_SIGNER) {
     await (
@@ -84,12 +94,37 @@ async function main(): Promise<void> {
     await (await pool.setEnclaveEncryptionKey(process.env.ENCLAVE_PUBKEY)).wait();
     console.log(`enclave pubkey  ${process.env.ENCLAVE_PUBKEY}`);
   }
+
+  const explorer = EXPLORER[network.name];
+  if (explorer) {
+    console.log(`\nexplorer        ${explorer}/address/${poolAddress}`);
+    console.log(`\nnext steps:`);
+    console.log(`  cd ../engine && POOL_ADDRESS=${poolAddress} OWNER_KEY=<deployer> npx tsx scripts/register.ts`);
+    console.log(`  cd ../web && echo "VITE_POOL_ADDRESS=${poolAddress}" >> .env`);
+  }
 }
 
-function required(name: string): string {
-  const value = process.env[name];
+function tokenAddress(name: string, fallback?: string): string {
+  const value = process.env[name] ?? fallback;
   if (!value) throw new Error(`${name} is required on ${network.name}`);
   return value;
+}
+
+async function assertToken(
+  address: string,
+  expectedSymbol: string | undefined,
+  expectedDecimals: number,
+  actualDecimals: number
+): Promise<void> {
+  const erc20 = await ethers.getContractAt("MockERC20", address);
+  const symbol = await erc20.symbol();
+  if (expectedSymbol && symbol !== expectedSymbol) {
+    throw new Error(`${address} symbol ${symbol} != ${expectedSymbol}`);
+  }
+  if (actualDecimals !== expectedDecimals) {
+    throw new Error(`${address} decimals ${actualDecimals} != ${expectedDecimals}`);
+  }
+  console.log(`token ${symbol.padEnd(8)} ${address} (${actualDecimals} dp)`);
 }
 
 async function decimalsOf(token: string): Promise<number> {

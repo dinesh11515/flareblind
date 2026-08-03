@@ -9,17 +9,6 @@ import { collectAttestation } from "./attestation.js";
 import { PoolClient, Phase } from "./chain.js";
 import { settleFromEvents } from "./settle.js";
 
-/**
- * Engine daemon. Watches the venue, closes batches whose window has elapsed,
- * and settles Sealing batches. Configuration via environment:
- *
- *   RPC_URL            chain endpoint (default local hardhat node)
- *   POOL_ADDRESS       StillwaterPool address (required)
- *   TEE_SIGNER_KEY     settlement key; in Confidential Space this is
- *                      generated inside the enclave instead
- *   ENCLAVE_SECRET_KEY optional fixed x25519 secret (hex) for dev restarts
- *   POLL_MS            loop interval, default 5000
- */
 async function main(): Promise<void> {
   await ready();
 
@@ -40,7 +29,7 @@ async function main(): Promise<void> {
     await client.signer.getAddress(),
     toHex(keypair.publicKey)
   );
-  console.log(`stillwater engine | mode=${attestation.mode}`);
+  console.log(`flareblind engine | mode=${attestation.mode}`);
   console.log(`  signer     ${await client.signer.getAddress()}`);
   console.log(`  enc pubkey ${toHex(keypair.publicKey)}`);
   console.log(`  att digest ${attestation.digest}`);
@@ -58,12 +47,25 @@ async function main(): Promise<void> {
 
   for (;;) {
     try {
-      await tick(client, keypair, maxDeviationBps);
+      await withRetry(() => tick(client, keypair, maxDeviationBps));
     } catch (err) {
       console.error("tick failed:", err instanceof Error ? err.message : err);
     }
     await sleep(pollMs);
   }
+}
+
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      if (i < attempts - 1) await sleep(1000 * (i + 1));
+    }
+  }
+  throw last;
 }
 
 async function tick(
@@ -82,7 +84,6 @@ async function tick(
     return;
   }
 
-  // Sealing: compute and submit the settlement.
   const events = await client.fetchSealedOrders(info.id);
   const balances = await client.venueBalances(events.map((e) => e.trader));
   const referencePrice = await client.referencePrice();

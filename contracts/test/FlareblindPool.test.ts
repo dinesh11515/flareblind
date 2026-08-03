@@ -2,18 +2,15 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
-// Base = FXRP (6 decimals), quote = USD stable (6 decimals).
-// Price convention: quote-wei per base-wei scaled 1e18, so with equal
-// decimals parseUnits("2.10", 18) means 2.10 USD per XRP.
 const PRICE = (p: string) => ethers.parseUnits(p, 18);
 const XRP = (a: string) => ethers.parseUnits(a, 6);
 const USD = (a: string) => ethers.parseUnits(a, 6);
 
 const BATCH_DURATION = 300;
-const MAX_DEVIATION_BPS = 200; // 2%
+const MAX_DEVIATION_BPS = 200;
 const MAX_ORACLE_AGE = 600;
 
-describe("StillwaterPool", () => {
+describe("FlareblindPool", () => {
   async function deployFixture() {
     const [owner, tee, alice, bob, carol] = await ethers.getSigners();
 
@@ -25,7 +22,7 @@ describe("StillwaterPool", () => {
     const oracle = await MockOracle.deploy();
     await oracle.set(PRICE("2.10"), await time.latest());
 
-    const Pool = await ethers.getContractFactory("StillwaterPool");
+    const Pool = await ethers.getContractFactory("FlareblindPool");
     const pool = await Pool.deploy(
       base,
       quote,
@@ -48,7 +45,6 @@ describe("StillwaterPool", () => {
     return { pool, base, quote, oracle, owner, tee, alice, bob, carol };
   }
 
-  /** Deposit, submit an order, and close the batch so it is Sealing. */
   async function sealedBatchFixture() {
     const ctx = await deployFixture();
     const { pool, alice, bob } = ctx;
@@ -136,7 +132,7 @@ describe("StillwaterPool", () => {
         .withArgs(1n, 0, 0, 0);
       const [id, phase] = await pool.batchInfo();
       expect(id).to.equal(2n);
-      expect(phase).to.equal(0); // Open
+      expect(phase).to.equal(0);
     });
 
     it("freezes withdrawals and new orders while Sealing", async () => {
@@ -168,16 +164,14 @@ describe("StillwaterPool", () => {
         .to.emit(pool, "BatchSettled")
         .withArgs(1n, PRICE("2.10"), XRP("1000"), 2);
 
-      // alice bought 1000 FXRP for 2100 USDX
       expect(await pool.baseBalanceOf(alice.address)).to.equal(XRP("1000"));
       expect(await pool.quoteBalanceOf(alice.address)).to.equal(USD("22900"));
-      // bob sold 1000 FXRP for 2100 USDX
+
       expect(await pool.baseBalanceOf(bob.address)).to.equal(XRP("4000"));
       expect(await pool.quoteBalanceOf(bob.address)).to.equal(USD("2100"));
-      // clean multiple: no rounding dust
+
       expect(await pool.quoteDust()).to.equal(0);
 
-      // venue reopened
       const [id, phase] = await pool.batchInfo();
       expect(id).to.equal(2n);
       expect(phase).to.equal(0);
@@ -187,7 +181,7 @@ describe("StillwaterPool", () => {
       const { pool, quote, owner, tee, alice, bob } = await loadFixture(
         sealedBatchFixture
       );
-      // 1 base-wei at 2.10: buyer pays ceil(2.1)=3, seller gets floor(2.1)=2
+
       const fills = [
         { trader: alice.address, isBuy: true, baseAmount: 1n },
         { trader: bob.address, isBuy: false, baseAmount: 1n },
@@ -218,11 +212,11 @@ describe("StillwaterPool", () => {
         { trader: alice.address, isBuy: true, baseAmount: XRP("100") },
         { trader: bob.address, isBuy: false, baseAmount: XRP("100") },
       ];
-      // oracle is 2.10; 2.20 is ~4.8% away, bound is 2%
+
       await expect(
         pool.connect(tee).settleBatch(1, PRICE("2.20"), fills)
       ).to.be.revertedWithCustomError(pool, "PriceOutOfBounds");
-      // 2.13 is ~1.4% away and passes
+
       await expect(pool.connect(tee).settleBatch(1, PRICE("2.13"), fills)).to.emit(
         pool,
         "BatchSettled"
@@ -243,7 +237,7 @@ describe("StillwaterPool", () => {
 
     it("rejects fills the trader cannot fund", async () => {
       const { pool, tee, alice, bob, carol } = await loadFixture(sealedBatchFixture);
-      // carol never deposited base but is named as a seller
+
       const fills = [
         { trader: alice.address, isBuy: true, baseAmount: XRP("100") },
         { trader: carol.address, isBuy: false, baseAmount: XRP("100") },

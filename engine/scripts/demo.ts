@@ -14,15 +14,6 @@ import { collectAttestation } from "../src/attestation.js";
 import { PoolClient } from "../src/chain.js";
 import { settleFromEvents } from "../src/settle.js";
 
-/**
- * Full venue walkthrough against a local hardhat node:
- * deploy, register enclave keys, seal and submit orders from three traders,
- * close the batch, run the engine's settlement pipeline, and verify balances.
- *
- *   cd contracts && npx hardhat node          (terminal 1)
- *   cd engine && npm run demo                 (terminal 2)
- */
-
 const RPC = process.env.RPC_URL ?? "http://127.0.0.1:8545";
 const DECIMALS = 6;
 const PRICE = (p: string) => parseUnits(p, 18);
@@ -43,8 +34,6 @@ async function main(): Promise<void> {
     [2, 3, 4].map((i) => provider.getSigner(i))
   );
 
-  // The TEE signer is a fresh key so the demo does not lean on well-known
-  // node accounts; in production it is generated inside the enclave.
   const tee = Wallet.createRandom().connect(provider);
   await (await owner.sendTransaction({ to: tee.address, value: 10n ** 18n })).wait();
 
@@ -61,13 +50,13 @@ async function main(): Promise<void> {
   const oracle = await deploy("mocks/MockOracle.sol/MockOracle.json", []);
   const now = (await provider.getBlock("latest"))!.timestamp;
   await (await oracle.set(PRICE("2.10"), now)).wait();
-  const pool = await deploy("StillwaterPool.sol/StillwaterPool.json", [
+  const pool = await deploy("FlareblindPool.sol/FlareblindPool.json", [
     await base.getAddress(),
     await quote.getAddress(),
     await oracle.getAddress(),
-    120, // batch window, seconds
-    200, // max clearing deviation from FTSO, bps
-    600, // max oracle age, seconds
+    120,
+    200,
+    600,
     await owner.getAddress(),
   ]);
   console.log(`  pool   ${await pool.getAddress()}`);

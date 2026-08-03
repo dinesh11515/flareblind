@@ -1,7 +1,9 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import dotenv from "dotenv";
 
-// evmVersion is pinned to london: Flare networks do not support PUSH0 yet.
+dotenv.config();
+
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.24",

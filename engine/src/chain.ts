@@ -22,14 +22,17 @@ const ORACLE_ABI = [
 
 export const Phase = { Open: 0, Sealing: 1 } as const;
 
+const LOG_CHUNK = 30;
+
+const DEFAULT_LOOKBACK = 500;
+
 export interface SealedOrderEvent {
   batchId: number;
   trader: string;
   orderIndex: number;
-  sealedOrder: string; // hex ciphertext
+  sealedOrder: string;
 }
 
-/** Read/write access to the venue for the engine's settlement loop. */
 export class PoolClient {
   readonly provider: JsonRpcProvider;
   readonly signer: Wallet;
@@ -46,7 +49,6 @@ export class PoolClient {
     return { id: Number(id), phase: Number(phase), endsAt, orders: Number(orders) };
   }
 
-  /** The venue reasons in block.timestamp; so must the engine. */
   async chainNow(): Promise<bigint> {
     const block = await this.provider.getBlock("latest");
     return BigInt(block!.timestamp);
@@ -59,7 +61,10 @@ export class PoolClient {
 
   async fetchSealedOrders(batchId: number): Promise<SealedOrderEvent[]> {
     const filter = this.pool.filters.OrderSubmitted(batchId);
-    const logs = await this.pool.queryFilter(filter, 0, "latest");
+    const fromBlock = process.env.POOL_FROM_BLOCK
+      ? Number(process.env.POOL_FROM_BLOCK)
+      : undefined;
+    const logs = await queryFilterChunked(this.pool, filter, fromBlock);
     return logs.map((log) => {
       const args = (log as { args: [bigint, string, bigint, string] }).args;
       return {
@@ -84,7 +89,6 @@ export class PoolClient {
     return balances;
   }
 
-  /** FTSO reference price via the venue's registered oracle adapter. */
   async referencePrice(): Promise<bigint> {
     const oracleAddress: string = await this.pool.oracle();
     const oracle = new Contract(oracleAddress, ORACLE_ABI, this.provider);
@@ -106,4 +110,22 @@ export class PoolClient {
     const receipt = await tx.wait();
     return receipt.hash;
   }
+}
+
+async function queryFilterChunked(
+  contract: Contract,
+  filter: ReturnType<Contract["filters"]["OrderSubmitted"]>,
+  fromBlock?: number
+): Promise<Array<{ args: [bigint, string, bigint, string] }>> {
+  const provider = contract.runner!.provider!;
+  const latest = await provider.getBlockNumber();
+  const floor = fromBlock ?? 0;
+  const start = Math.max(floor, latest - DEFAULT_LOOKBACK);
+  const logs: Array<{ args: [bigint, string, bigint, string] }> = [];
+  for (let block = start; block <= latest; block += LOG_CHUNK) {
+    const end = Math.min(block + LOG_CHUNK - 1, latest);
+    const chunk = await contract.queryFilter(filter, block, end);
+    logs.push(...(chunk as Array<{ args: [bigint, string, bigint, string] }>));
+  }
+  return logs;
 }

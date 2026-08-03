@@ -7,18 +7,6 @@ import {
 } from "./auction.js";
 import type { SealedOrderEvent } from "./chain.js";
 
-/**
- * Turn a batch's sealed order events into a settlement.
- *
- * An order is dropped (never reverted on) unless it:
- *   - decrypts to a well-formed payload under the enclave key,
- *   - names the same trader that submitted it onchain (no ciphertext replay
- *     by another account),
- *   - names the batch it was actually submitted to (no cross-batch replay),
- *   - is fully funded by the trader's frozen venue balance.
- *
- * Addresses are lowercased throughout; `balances` must be keyed lowercase.
- */
 export function settleFromEvents(
   events: SealedOrderEvent[],
   keypair: EnclaveKeypair,
