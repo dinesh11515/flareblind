@@ -12,11 +12,11 @@
   },
   "dependencies": {
     "ethers": "^6.17.0",
-    "libsodium-wrappers": "^0.8.4"
+    "libsodium-wrappers": "^0.8.4",
+    "tsx": "^4.23.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "tsx": "^4.23.1",
     "typescript": "^5.8.3",
     "vitest": "^4.1.10"
   }

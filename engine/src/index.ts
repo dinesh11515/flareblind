@@ -1,3 +1,4 @@
+import http from "node:http";
 import {
   ready,
   generateEnclaveKeypair,
@@ -9,7 +10,27 @@ import { collectAttestation } from "./attestation.js";
 import { PoolClient, Phase } from "./chain.js";
 import { settleFromEvents } from "./settle.js";
 
+function listenHealth(): void {
+  const port = process.env.PORT;
+  if (!port) return;
+  http
+    .createServer((req, res) => {
+      if (req.url === "/health") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("ok");
+        return;
+      }
+      res.writeHead(404).end();
+    })
+    .listen(Number(port), () => console.log(`health on :${port}`));
+}
+
+function isLocalRpc(rpcUrl: string): boolean {
+  return /localhost|127\.0\.0\.1/.test(rpcUrl);
+}
+
 async function main(): Promise<void> {
+  listenHealth();
   await ready();
 
   const rpcUrl = process.env.RPC_URL ?? "http://127.0.0.1:8545";
@@ -17,6 +38,10 @@ async function main(): Promise<void> {
   const teeSignerKey = process.env.TEE_SIGNER_KEY;
   if (!poolAddress || !teeSignerKey) {
     console.error("POOL_ADDRESS and TEE_SIGNER_KEY are required");
+    process.exit(1);
+  }
+  if (!isLocalRpc(rpcUrl) && !process.env.ENCLAVE_SECRET_KEY) {
+    console.error("ENCLAVE_SECRET_KEY is required off localhost");
     process.exit(1);
   }
 
