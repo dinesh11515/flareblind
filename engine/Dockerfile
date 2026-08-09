@@ -2,11 +2,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY engine/package.json engine/package-lock.json ./
 RUN npm ci
 
-COPY tsconfig.json ./
-COPY src ./src
+COPY engine/tsconfig.json ./
+COPY engine/src ./src
 
 ENV NODE_ENV=production
 
