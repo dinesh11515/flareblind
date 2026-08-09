@@ -24,13 +24,17 @@ export const Phase = { Open: 0, Sealing: 1 } as const;
 
 const LOG_CHUNK = 30;
 
-const DEFAULT_LOOKBACK = 500;
+const MAX_LOOKBACK = 50_000;
 
 export interface SealedOrderEvent {
   batchId: number;
   trader: string;
   orderIndex: number;
   sealedOrder: string;
+}
+
+interface OrderSubmittedLog {
+  args: [bigint, string, bigint, string];
 }
 
 export class PoolClient {
@@ -59,34 +63,50 @@ export class PoolClient {
     await tx.wait();
   }
 
-  async fetchSealedOrders(batchId: number): Promise<SealedOrderEvent[]> {
+  async fetchSealedOrders(batchId: number, expectedCount?: number): Promise<SealedOrderEvent[]> {
     const filter = this.pool.filters.OrderSubmitted(batchId);
-    const fromBlock = process.env.POOL_FROM_BLOCK
+    const latest = await this.provider.getBlockNumber();
+    const configured = process.env.POOL_FROM_BLOCK
       ? Number(process.env.POOL_FROM_BLOCK)
       : undefined;
-    const logs = await queryFilterChunked(this.pool, filter, fromBlock);
-    return logs.map((log) => {
-      const args = (log as { args: [bigint, string, bigint, string] }).args;
-      return {
+    const floor =
+      configured !== undefined && configured <= latest
+        ? configured
+        : Math.max(0, latest - MAX_LOOKBACK);
+    const target = expectedCount ?? Infinity;
+
+    const logs: OrderSubmittedLog[] = [];
+    let end = latest;
+    while (end >= floor && logs.length < target) {
+      const start = Math.max(floor, end - LOG_CHUNK + 1);
+      const chunk = await this.pool.queryFilter(filter, start, end);
+      logs.push(...(chunk as unknown as OrderSubmittedLog[]));
+      if (start === floor) break;
+      end = start - 1;
+    }
+
+    return logs
+      .map(({ args }) => ({
         batchId: Number(args[0]),
         trader: args[1],
         orderIndex: Number(args[2]),
         sealedOrder: args[3],
-      };
-    });
+      }))
+      .sort((a, b) => a.orderIndex - b.orderIndex);
   }
 
   async venueBalances(traders: string[]): Promise<Map<string, { base: bigint; quote: bigint }>> {
     const unique = [...new Set(traders.map((t) => t.toLowerCase()))];
-    const balances = new Map<string, { base: bigint; quote: bigint }>();
-    for (const trader of unique) {
-      const [base, quote] = await Promise.all([
-        this.pool.baseBalanceOf(trader),
-        this.pool.quoteBalanceOf(trader),
-      ]);
-      balances.set(trader, { base, quote });
-    }
-    return balances;
+    const pairs = await Promise.all(
+      unique.map(async (trader) => {
+        const [base, quote] = await Promise.all([
+          this.pool.baseBalanceOf(trader) as Promise<bigint>,
+          this.pool.quoteBalanceOf(trader) as Promise<bigint>,
+        ]);
+        return [trader, { base, quote }] as const;
+      })
+    );
+    return new Map(pairs);
   }
 
   async referencePrice(): Promise<bigint> {
@@ -110,22 +130,4 @@ export class PoolClient {
     const receipt = await tx.wait();
     return receipt.hash;
   }
-}
-
-async function queryFilterChunked(
-  contract: Contract,
-  filter: ReturnType<Contract["filters"]["OrderSubmitted"]>,
-  fromBlock?: number
-): Promise<Array<{ args: [bigint, string, bigint, string] }>> {
-  const provider = contract.runner!.provider!;
-  const latest = await provider.getBlockNumber();
-  const floor = fromBlock ?? 0;
-  const start = Math.max(floor, latest - DEFAULT_LOOKBACK);
-  const logs: Array<{ args: [bigint, string, bigint, string] }> = [];
-  for (let block = start; block <= latest; block += LOG_CHUNK) {
-    const end = Math.min(block + LOG_CHUNK - 1, latest);
-    const chunk = await contract.queryFilter(filter, block, end);
-    logs.push(...(chunk as Array<{ args: [bigint, string, bigint, string] }>));
-  }
-  return logs;
 }

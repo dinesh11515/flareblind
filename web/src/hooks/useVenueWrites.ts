@@ -1,25 +1,24 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Address, type Hex, parseUnits } from "viem";
-import { getPublicClient, waitForTransactionReceipt } from "@wagmi/core";
+import { waitForTransactionReceipt } from "@wagmi/core";
 import { useAccount, useConfig, useWriteContract } from "wagmi";
-import { COSTON2_ID } from "../lib/network";
 import { erc20Abi } from "../abi/erc20";
 import { poolAbi } from "../abi/pool";
 import { formatAppError } from "../lib/errors";
+import { parsePrice } from "../lib/price";
 import { sealOrder } from "../lib/sealing";
 import type { LocalOrder, PoolTokens, VenueStatus } from "../types";
+import { useVenueClient } from "./useVenueClient";
 import { venueKeys } from "./queryKeys";
 
-const ORDERS_KEY = "flareblind.orders";
+const ordersKey = (pool: Address) => `flareblind.orders.${pool.toLowerCase()}`;
 
-export function readLocalOrders(): LocalOrder[] {
+export function readLocalOrders(pool?: Address): LocalOrder[] {
+  if (!pool) return [];
   try {
-    return JSON.parse(
-      localStorage.getItem(ORDERS_KEY) ??
-        localStorage.getItem("stillwater.orders") ??
-        "[]",
-    ) as LocalOrder[];
+    const raw = localStorage.getItem(ordersKey(pool));
+    return raw ? (JSON.parse(raw) as LocalOrder[]) : [];
   } catch {
     return [];
   }
@@ -33,24 +32,28 @@ export function useVenueWrites(opts: {
   const { pool, tokens, status } = opts;
   const { address } = useAccount();
   const config = useConfig();
+  const { client, chainId } = useVenueClient();
   const queryClient = useQueryClient();
   const { writeContractAsync } = useWriteContract();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [orders, setOrders] = useState<LocalOrder[]>(readLocalOrders);
+  const [orders, setOrders] = useState<LocalOrder[]>(() => readLocalOrders(pool));
+
+  useEffect(() => {
+    setOrders(readLocalOrders(pool));
+  }, [pool]);
 
   const invalidate = useCallback(async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: venueKeys.status(pool) }),
+      queryClient.invalidateQueries({ queryKey: venueKeys.status(chainId, pool) }),
       queryClient.invalidateQueries({
-        queryKey: venueKeys.balances(pool, address),
+        queryKey: venueKeys.balances(chainId, pool, address),
       }),
-      queryClient.invalidateQueries({ queryKey: venueKeys.settlements(pool) }),
       queryClient.invalidateQueries({
-        queryKey: venueKeys.publicSnapshot(pool),
+        queryKey: venueKeys.settlements(chainId, pool),
       }),
     ]);
-  }, [address, pool, queryClient]);
+  }, [address, chainId, pool, queryClient]);
 
   const run = useCallback(
     async (label: string, action: () => Promise<void>) => {
@@ -82,9 +85,7 @@ export function useVenueWrites(opts: {
         const token = isBase ? tokens.base : tokens.quote;
         const decimals = isBase ? tokens.baseDecimals : tokens.quoteDecimals;
         const amount = parseUnits(human, decimals);
-        const publicClient = getPublicClient(config, { chainId: COSTON2_ID });
-        if (!publicClient) throw new Error("RPC unreachable. Retry in a moment.");
-        const allowance = await publicClient.readContract({
+        const allowance = await client.readContract({
           address: token,
           abi: erc20Abi,
           functionName: "allowance",
@@ -107,7 +108,7 @@ export function useVenueWrites(opts: {
         });
         await waitTx(hash);
       }),
-    [address, config, pool, run, tokens, waitTx, writeContractAsync],
+    [address, client, pool, run, tokens, waitTx, writeContractAsync],
   );
 
   const withdraw = useCallback(
@@ -170,7 +171,7 @@ export function useVenueWrites(opts: {
       run("submit", async () => {
         if (!pool || !tokens || !address || !status) return;
         const amountBase = parseUnits(amount, tokens.baseDecimals);
-        const limitPrice = parseUnits(limit, 18);
+        const limitPrice = parsePrice(limit, tokens);
         const ciphertext = await sealOrder(
           {
             trader: address,
@@ -194,11 +195,12 @@ export function useVenueWrites(opts: {
           amount,
           limit,
           ciphertext,
+          tx: hash,
           at: Date.now(),
         };
         setOrders((prev) => {
           const next = [record, ...prev].slice(0, 20);
-          localStorage.setItem(ORDERS_KEY, JSON.stringify(next));
+          localStorage.setItem(ordersKey(pool), JSON.stringify(next));
           return next;
         });
       }),

@@ -10,12 +10,10 @@ import {
 const POOL_KEY = "flareblind.pool";
 
 export function readInitialPool(): string {
-  const stored =
-    localStorage.getItem(POOL_KEY) ?? localStorage.getItem("stillwater.pool");
+  const stored = localStorage.getItem(POOL_KEY);
   const resolved = resolvePoolAddress(stored);
   if (resolved && resolved !== stored) {
     localStorage.setItem(POOL_KEY, resolved);
-    localStorage.removeItem("stillwater.pool");
   }
   return resolved;
 }

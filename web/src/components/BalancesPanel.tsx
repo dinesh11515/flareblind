@@ -6,12 +6,12 @@ export function BalancesPanel(props: {
   tokens: PoolTokens | undefined;
   balances: Balances | null;
   busy: string | null;
-  liveNetwork: boolean;
+  mintable: boolean;
   onDeposit: (isBase: boolean, amount: string) => void;
   onWithdraw: (isBase: boolean, amount: string) => void;
   onMint: () => void;
 }) {
-  const { tokens, balances, busy, liveNetwork, onDeposit, onWithdraw, onMint } =
+  const { tokens, balances, busy, mintable, onDeposit, onWithdraw, onMint } =
     props;
   const [baseAmt, setBaseAmt] = useState("");
   const [quoteAmt, setQuoteAmt] = useState("");
@@ -116,22 +116,29 @@ export function BalancesPanel(props: {
         false,
       )}
 
-      {!liveNetwork && (
+      {mintable ? (
         <button className="btn ghost" disabled={busy !== null} onClick={onMint}>
           {busy === "mint" ? "Minting…" : "Mint test funds"}
         </button>
-      )}
-      {liveNetwork && (
+      ) : (
         <p className="note">
           Need tokens? Use the{" "}
           <a
-            href="https://faucet.flare.network/"
+            href="https://faucet.flare.network/coston2"
             target="_blank"
             rel="noreferrer"
           >
             Coston2 faucet
           </a>{" "}
-          for FTestXRP + USD₮0, then deposit here.
+          for C2FLR gas, and the{" "}
+          <a
+            href="https://faucet.flare.network/coston2"
+            target="_blank"
+            rel="noreferrer"
+          >
+            FAssets faucet
+          </a>{" "}
+          for {tokens.baseSymbol}, then deposit here.
         </p>
       )}
     </section>

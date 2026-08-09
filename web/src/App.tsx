@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import { formatUnits } from "viem";
 import { useAccount, useSwitchChain } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
 import { BrandMark } from "./components/BrandMark";
@@ -8,10 +7,11 @@ import { Landing } from "./components/Landing";
 import { WalletButton } from "./components/WalletButton";
 import { usePoolTokens } from "./hooks/usePoolTokens";
 import { useVenueStatus } from "./hooks/useVenueStatus";
-import { COSTON2_ID, isCoston2 } from "./lib/network";
+import { COSTON2_ID, isSupportedChain } from "./lib/network";
 import { usePoolAddress } from "./lib/pool";
 import { formatAppError } from "./lib/errors";
-import { Swap } from "./pages/Swap";
+import { priceToNumber } from "./lib/price";
+import { Venue } from "./pages/Venue";
 import { flareTestnet } from "./wagmi";
 
 export default function App() {
@@ -29,7 +29,7 @@ export default function App() {
   useEffect(() => {
     if (pendingEnter && isConnected) {
       setPendingEnter(false);
-      navigate("/swap");
+      navigate("/venue");
     }
   }, [pendingEnter, isConnected, navigate]);
 
@@ -40,14 +40,14 @@ export default function App() {
   const enterVenue = () => {
     clearPoolError();
     if (isConnected) {
-      navigate("/swap");
+      navigate("/venue");
       return;
     }
     setPendingEnter(true);
     openConnectModal?.();
   };
 
-  const wrongNetwork = isConnected && !isCoston2(chainId);
+  const wrongNetwork = isConnected && !isSupportedChain(chainId);
 
   const switchNetwork = async () => {
     setError(null);
@@ -57,13 +57,6 @@ export default function App() {
       setError(formatAppError(err));
     }
   };
-
-  const priceFmt = useMemo(
-    () => (p: bigint) => Number(formatUnits(p, 18)).toFixed(4),
-    [],
-  );
-
-  const toastError = error;
 
   return (
     <div className="app">
@@ -102,7 +95,8 @@ export default function App() {
               <div className="chip ref-price">
                 <span className="label">FTSO</span>
                 <span className="mono">
-                  {priceFmt(status.referencePrice)} {tokens.quoteSymbol}
+                  {priceToNumber(status.referencePrice, tokens).toFixed(4)}{" "}
+                  {tokens.quoteSymbol}
                 </span>
               </div>
             )}
@@ -112,11 +106,21 @@ export default function App() {
       </header>
 
       <Routes>
-        <Route path="/" element={<Landing onEnter={enterVenue} />} />
         <Route
-          path="/swap"
+          path="/"
           element={
-            <Swap
+            <Landing
+              onEnter={enterVenue}
+              pool={pool}
+              tokens={tokens}
+              status={status ?? null}
+            />
+          }
+        />
+        <Route
+          path="/venue"
+          element={
+            <Venue
               address={address}
               poolAddress={poolAddress}
               pool={pool}
@@ -129,9 +133,9 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {toastError && (
+      {error && (
         <div className="toast error" role="alert">
-          <span>{toastError}</span>
+          <span>{error}</span>
           <button
             className="toast-dismiss"
             onClick={() => {

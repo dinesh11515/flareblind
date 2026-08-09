@@ -17,6 +17,7 @@ export interface VenueStatus {
   orders: number;
   referencePrice: bigint | null;
   maxDeviationBps: bigint;
+  batchDuration: bigint;
   enclaveKey: Hex;
   teeSigner: Address;
   attestationDigest: Hex;
@@ -42,5 +43,6 @@ export interface LocalOrder {
   amount: string;
   limit: string;
   ciphertext: string;
+  tx?: string;
   at: number;
 }

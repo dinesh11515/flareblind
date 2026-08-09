@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Address } from "viem";
-import { usePublicClient } from "wagmi";
 import { erc20Abi } from "../abi/erc20";
 import { poolAbi } from "../abi/pool";
 import type { Balances, PoolTokens } from "../types";
-import { flareTestnet } from "../wagmi";
+import { useVenueClient } from "./useVenueClient";
 import { venueKeys } from "./queryKeys";
 
 export function useBalances(
@@ -12,33 +11,33 @@ export function useBalances(
   tokens: PoolTokens | undefined,
   address: Address | undefined,
 ) {
-  const client = usePublicClient({ chainId: flareTestnet.id });
+  const { client, chainId } = useVenueClient();
 
   return useQuery({
-    queryKey: venueKeys.balances(pool, address),
-    enabled: Boolean(client && pool && tokens && address),
+    queryKey: venueKeys.balances(chainId, pool, address),
+    enabled: Boolean(pool && tokens && address),
     refetchInterval: 4_000,
     queryFn: async (): Promise<Balances> => {
       const [walletBase, walletQuote, venueBase, venueQuote] = await Promise.all([
-        client!.readContract({
+        client.readContract({
           address: tokens!.base,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [address!],
         }),
-        client!.readContract({
+        client.readContract({
           address: tokens!.quote,
           abi: erc20Abi,
           functionName: "balanceOf",
           args: [address!],
         }),
-        client!.readContract({
+        client.readContract({
           address: pool!,
           abi: poolAbi,
           functionName: "baseBalanceOf",
           args: [address!],
         }),
-        client!.readContract({
+        client.readContract({
           address: pool!,
           abi: poolAbi,
           functionName: "quoteBalanceOf",

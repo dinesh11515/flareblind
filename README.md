@@ -28,12 +28,12 @@ Flareblind removes the blind trust:
 
 ## Layout
 
-| Path         | What it is                                                    |
-| ------------ | ------------------------------------------------------------- |
-| `contracts/` | Settlement contract, oracle adapter, tests (Hardhat)          |
-| `engine/`    | Matching engine that runs inside the TEE (Node/TypeScript)    |
-| `web/`       | Trader terminal (React/Vite)                                  |
-| `docs/`      | Architecture, trust model, and decision records               |
+| Path              | What it is                                                 |
+| ----------------- | ---------------------------------------------------------- |
+| `contracts/`      | Settlement contract, oracle adapter, tests (Hardhat)       |
+| `engine/`         | Matching engine that runs inside the TEE (Node/TypeScript) |
+| `web/`            | Trader terminal (React/Vite)                               |
+| `ARCHITECTURE.md` | How the three pieces fit, and the trust model              |
 
 ## Quickstart (local)
 
@@ -52,16 +52,29 @@ npm start
 cd web && npm install && npm run dev
 ```
 
-Open the printed localhost URL, connect a wallet on the hardhat network
-(chain id 31337, RPC http://127.0.0.1:8545), paste the pool address, mint
-test funds, deposit, and trade. `npm run demo` in `engine/` runs the whole
-flow headlessly instead.
+`npm run dev` offers the local hardhat chain alongside Coston2; a deployed
+build is Coston2 only. Open the printed URL, connect a wallet on the hardhat
+network (chain id 31337, RPC http://127.0.0.1:8545), paste the pool address
+into Market, mint test funds, deposit, and trade.
 
-Tests: `npx hardhat test` in `contracts/` (19), `npm test` in `engine/` (18).
+`npm run demo` in `engine/` runs the same flow headlessly against a bare
+hardhat node, asserting the settled balances to the wei.
+
+Tests: `npm test` in `contracts/` (19) and in `engine/` (24).
+`npm run typecheck` in `engine/` and `web/`.
 
 ## Status
 
 Built during [Flare Summer Signal](https://dorahacks.io/hackathon/flaresummersignal)
-(June–August 2026). Runs end to end locally today; Coston2 deployment guide:
-[docs/coston2-deploy.md](docs/coston2-deploy.md). GCP Confidential Space enclave
-is next — see [docs/plan.md](docs/plan.md).
+(June–August 2026). Deployed to Coston2 against the real FTSOv2 XRP/USD feed,
+trading FTestXRP against USD₮0:
+
+| | |
+| --- | --- |
+| Pool | [`0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0`](https://coston2-explorer.flare.network/address/0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0) |
+| Oracle adapter | [`0x609328dFA6066E43b5B3e15A7ad103Ba7985116B`](https://coston2-explorer.flare.network/address/0x609328dFA6066E43b5B3e15A7ad103Ba7985116B) |
+
+Addresses and the registered enclave keys are in
+[deployments/coston2.json](deployments/coston2.json). The engine runs in dev
+mode today; moving it into GCP Confidential Space, so the attestation digest
+onchain is a real Intel TDX token, is the next step.

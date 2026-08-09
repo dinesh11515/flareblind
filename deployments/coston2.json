@@ -19,5 +19,8 @@
   },
   "deployBlock": 33567293,
   "explorer": "https://coston2-explorer.flare.network/address/0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0",
-  "supersedes": "0xCFb131E94B6485C851C8F06c3a7DaD922Ca51B6C"
+  "supersedes": [
+    "0xCFb131E94B6485C851C8F06c3a7DaD922Ca51B6C",
+    "0x69369e567BC87e463d2acc90abf9cA0E15cB8795"
+  ]
 }

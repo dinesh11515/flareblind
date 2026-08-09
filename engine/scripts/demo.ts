@@ -169,8 +169,16 @@ async function main(): Promise<void> {
   step("verify");
   assertEq(result.clearingPrice, PRICE("2.11"), "clearing price 2.11");
   assertEq(await pool.baseBalanceOf(await alice.getAddress()), XRP("1200"), "alice bought 1200");
-  assertEq(await pool.baseBalanceOf(await bob.getAddress()), XRP("160"), "bob pro-rated to 640");
-  assertEq(await pool.baseBalanceOf(await carol.getAddress()), XRP("140"), "carol pro-rated to 560");
+  assertEq(
+    await pool.baseBalanceOf(await bob.getAddress()),
+    XRP("160"),
+    "bob sold 640 of 800, 160 left"
+  );
+  assertEq(
+    await pool.baseBalanceOf(await carol.getAddress()),
+    XRP("140"),
+    "carol sold 560 of 700, 140 left"
+  );
   console.log("\n  all checks passed — sealed intake to onchain settlement, end to end\n");
 }
 

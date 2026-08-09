@@ -30,10 +30,11 @@ export async function queryBatchSettled(
 ): Promise<BatchSettledArgs[]> {
   const latest = await client.getBlockNumber();
   const floor = latest > BigInt(HISTORY_BLOCKS) ? latest - BigInt(HISTORY_BLOCKS) : 0n;
-  const start =
+  const hinted =
     params.fromBlock !== undefined && params.fromBlock > floor
       ? params.fromBlock
       : floor;
+  const start = hinted > latest ? floor : hinted;
 
   const ranges: [bigint, bigint][] = [];
   for (let block = start; block <= latest; block += BigInt(LOG_CHUNK)) {

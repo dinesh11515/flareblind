@@ -1,28 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { type Address, createPublicClient, http } from "viem";
-import { usePublicClient } from "wagmi";
+import type { Address } from "viem";
 import { erc20Abi } from "../abi/erc20";
 import { poolAbi } from "../abi/pool";
 import type { PoolTokens } from "../types";
-import { flareTestnet } from "../wagmi";
+import { useVenueClient } from "./useVenueClient";
 import { venueKeys } from "./queryKeys";
 
-function fallbackClient() {
-  return createPublicClient({
-    chain: flareTestnet,
-    transport: http(flareTestnet.rpcUrls.default.http[0]),
-  });
-}
-
 export function usePoolTokens(pool?: Address) {
-  const wagmiClient = usePublicClient({ chainId: flareTestnet.id });
+  const { client, chainId } = useVenueClient();
 
   return useQuery({
-    queryKey: venueKeys.tokens(pool),
+    queryKey: venueKeys.tokens(chainId, pool),
     enabled: Boolean(pool),
     staleTime: 60_000,
     queryFn: async (): Promise<PoolTokens> => {
-      const client = wagmiClient ?? fallbackClient();
       const [base, quote] = await Promise.all([
         client.readContract({ address: pool!, abi: poolAbi, functionName: "base" }),
         client.readContract({ address: pool!, abi: poolAbi, functionName: "quote" }),

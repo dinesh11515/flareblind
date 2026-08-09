@@ -1,23 +1,27 @@
-import type { Balances, VenueStatus } from "../types";
+import type { Balances, PoolTokens, VenueStatus } from "../types";
 import { Phase } from "../abi/pool";
 
 export function TradeFlow(props: {
+  tokens: PoolTokens | undefined;
   balances: Balances | null;
   status: VenueStatus | null;
   hasOrders: boolean;
 }) {
-  const { balances, status, hasOrders } = props;
+  const { tokens, balances, status, hasOrders } = props;
 
   const funded =
     balances !== null && (balances.venueBase > 0n || balances.venueQuote > 0n);
   const open = status?.phase === Phase.Open;
   const sealing = status?.phase === Phase.Sealing;
+  const pair = tokens
+    ? `${tokens.baseSymbol} or ${tokens.quoteSymbol}`
+    : "the venue tokens";
 
   const steps = [
     {
       id: 1,
       title: "Fund the venue",
-      body: "Deposit FTestXRP or USD₮0 so the enclave can fill you.",
+      body: `Deposit ${pair} so the enclave can fill you.`,
       done: funded,
       active: !funded,
     },

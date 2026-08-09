@@ -5,10 +5,8 @@
 :root {
   
   --bg: #f5ead8;
-  --bg-deep: #efe2cb;
   --surface: #ebddc5;
   --surface-2: #f9f4ed;
-  --surface-3: #eee7db;
   --border: color-mix(in srgb, #201e1d 12%, transparent);
   --border-strong: color-mix(in srgb, #201e1d 22%, transparent);
 
@@ -29,15 +27,11 @@
   --accent-dim: #fff2eb;
   --warn: #b2622d;
   --warn-dim: #ffe1d0;
-  --danger: #8c491a;
 
-  --neutral-100: #f9f4ed;
   --neutral-300: #dcd3c4;
   --neutral-600: #82796a;
-  --neutral-900: #2e2b25;
 
   --radius: 28px;
-  --radius-sm: 999px;
   --radius-card: 32px;
 
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
@@ -136,14 +130,18 @@ a:hover { color: #643312; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
 .brand-name { font-family: var(--display); font-weight: 400; font-size: 20px; letter-spacing: -0.015em; }
 
-.swap-gate {
-  max-width: 420px;
-  margin: 10vh auto 0;
+.venue-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 60vh;
 }
-.swap-gate .panel { gap: 16px; }
+.venue-gate .panel { gap: 16px; width: 100%; max-width: 420px; text-align: center; }
+.venue-gate .btn { align-self: center; }
 .tagline { font-size: 11px; font-weight: 400; letter-spacing: 0.05em; color: var(--neutral-600); }
 
-.topbar-right { display: flex; align-items: center; gap: 10px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 .chip {
   display: flex; align-items: center; gap: 9px;
@@ -342,6 +340,11 @@ button.chip { cursor: pointer; }
 @media (max-width: 720px) {
   .landing-steps { grid-template-columns: 1fr; }
   .tagline { display: none; }
+}
+@media (max-width: 560px) {
+  .ref-price { display: none; }
+  .topbar-inner { gap: 10px; }
+  .wallet { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 
 .shell {
@@ -795,6 +798,27 @@ input::placeholder { color: var(--text-faint); }
 @media (max-width: 720px) {
   .ledger-row { grid-template-columns: 52px minmax(0, 1fr) 64px; }
   .ledger-row > .hide-sm { display: none; }
+}
+.ledger.is-compact .ledger-row { grid-template-columns: 52px minmax(0, 1fr) 64px; }
+
+.ledger-dot.is-drifted {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-dim);
+}
+
+.field-problem {
+  margin: -4px 0 2px;
+  padding: 9px 13px;
+  border-radius: 14px;
+  background: var(--warn-dim);
+  color: var(--accent-deep);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.batch-warning {
+  margin-top: 10px;
+  color: var(--accent-deep);
 }
 
 .toast {

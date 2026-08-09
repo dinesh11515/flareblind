@@ -69,6 +69,13 @@ export const poolAbi = [
   },
   {
     type: "function",
+    name: "batchDuration",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "oracle",
     stateMutability: "view",
     inputs: [],

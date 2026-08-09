@@ -13,8 +13,7 @@ export function WalletButton() {
         openConnectModal,
         mounted,
       }) => {
-        const ready = mounted;
-        if (!ready) {
+        if (!mounted) {
           return (
             <button className="btn primary" type="button" disabled>
               Connect wallet

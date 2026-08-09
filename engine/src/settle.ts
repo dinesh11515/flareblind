@@ -7,6 +7,8 @@ import {
 } from "./auction.js";
 import type { SealedOrderEvent } from "./chain.js";
 
+const BAND_USE_BPS = 90n;
+
 export function settleFromEvents(
   events: SealedOrderEvent[],
   keypair: EnclaveKeypair,
@@ -15,7 +17,12 @@ export function settleFromEvents(
   maxDeviationBps: bigint
 ): { result: ClearingResult; accepted: number; dropped: number } {
   const orders: DecryptedOrder[] = [];
+  const seen = new Set<string>();
   for (const event of events) {
+    const ciphertext = event.sealedOrder.toLowerCase();
+    if (seen.has(ciphertext)) continue;
+    seen.add(ciphertext);
+
     const payload = openOrder(fromHex(event.sealedOrder), keypair);
     if (payload === null) continue;
     if (payload.trader.toLowerCase() !== event.trader.toLowerCase()) continue;
@@ -30,6 +37,10 @@ export function settleFromEvents(
   }
 
   const funded = filterFunded(orders, balances);
-  const result = clearBatch(funded, referencePrice, maxDeviationBps);
+  const result = clearBatch(
+    funded,
+    referencePrice,
+    (maxDeviationBps * BAND_USE_BPS) / 100n
+  );
   return { result, accepted: funded.length, dropped: events.length - funded.length };
 }

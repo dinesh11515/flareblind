@@ -15,12 +15,13 @@ export function SettlementsTable(props: {
         <div>
           <h2>Cleared batches</h2>
           <p className="panel-sub">
-            Every settlement, plotted against the FTSO band it had to land in.
+            Each settlement plotted against the FTSO band, measured from the
+            reference price right now.
           </p>
         </div>
         {settlements.length > 0 && (
           <span className="badge open">
-            {settlements.length} in band · 0 rejected
+            {settlements.length} cleared
           </span>
         )}
       </div>
@@ -34,8 +35,9 @@ export function SettlementsTable(props: {
 
       {tokens && settlements.length > 0 && referencePrice !== null && (
         <p className="note">
-          Dot size scales with matched volume. A settlement outside the band
-          cannot be written — the contract reverts.
+          Dot size scales with matched volume. Each batch was inside the band
+          when it settled — the contract reverts otherwise — so a dot sitting
+          wide of centre is the FTSO price having moved since.
         </p>
       )}
     </section>

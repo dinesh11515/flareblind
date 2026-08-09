@@ -1,11 +1,14 @@
-import { formatUnits } from "viem";
-import { usePublicSnapshot } from "../hooks/usePublicSnapshot";
+import type { Address } from "viem";
+import { useSettlements } from "../hooks/useSettlements";
+import { priceToNumber } from "../lib/price";
+import type { PoolTokens, VenueStatus } from "../types";
+import { SettlementsLedger } from "./SettlementsLedger";
 
 const STEPS = [
   {
     n: "01",
     title: "Fund",
-    body: "Deposit FTestXRP or USD₮0 into the venue. Only funded balances can be filled, so nobody can bluff size.",
+    body: "Deposit the base or quote token into the venue. Only funded balances can be filled, so nobody can bluff size.",
     tag: "onchain deposit",
   },
   {
@@ -22,19 +25,22 @@ const STEPS = [
   },
 ];
 
-export function Landing(props: { onEnter: () => void }) {
-  const { onEnter } = props;
-  const { data: snapshot } = usePublicSnapshot();
+export function Landing(props: {
+  onEnter: () => void;
+  pool: Address | undefined;
+  tokens: PoolTokens | undefined;
+  status: VenueStatus | null;
+}) {
+  const { onEnter, pool, tokens, status } = props;
+  const { data: settlements = [] } = useSettlements(pool);
 
   const oracle =
-    snapshot?.referencePrice != null
-      ? Number(formatUnits(snapshot.referencePrice, 18))
+    status?.referencePrice != null && tokens
+      ? priceToNumber(status.referencePrice, tokens)
       : null;
-  const bandPct = snapshot ? Number(snapshot.maxDeviationBps) / 100 : null;
-  const ledger =
-    snapshot && snapshot.settlements.length >= 3 && oracle !== null
-      ? snapshot.settlements
-      : [];
+  const bandPct = status ? Number(status.maxDeviationBps) / 100 : null;
+  const windowMins = status ? Math.round(Number(status.batchDuration) / 60) : null;
+  const ledger = settlements.slice(0, 6);
 
   return (
     <main className="landing">
@@ -57,24 +63,28 @@ export function Landing(props: { onEnter: () => void }) {
             </a>
           </div>
 
-          {snapshot && (
+          {status && (
             <dl className="landing-stats">
-              <div className="stat">
-                <dt>batches cleared</dt>
-                <dd className="mono">
-                  {snapshot.batchesCleared.toLocaleString()}
-                </dd>
-              </div>
               {bandPct !== null && (
                 <div className="stat">
                   <dt>FTSO band</dt>
                   <dd className="mono">±{bandPct.toFixed(2)}%</dd>
                 </div>
               )}
-              <div className="stat">
-                <dt>orders seen pre-trade</dt>
-                <dd className="mono">0</dd>
-              </div>
+              {windowMins !== null && (
+                <div className="stat">
+                  <dt>batch window</dt>
+                  <dd className="mono">{windowMins}m</dd>
+                </div>
+              )}
+              {tokens && (
+                <div className="stat">
+                  <dt>pair</dt>
+                  <dd className="mono">
+                    {tokens.baseSymbol}/{tokens.quoteSymbol}
+                  </dd>
+                </div>
+              )}
             </dl>
           )}
         </div>
@@ -114,58 +124,28 @@ export function Landing(props: { onEnter: () => void }) {
         </div>
       </section>
 
-      {ledger.length > 0 && oracle !== null && bandPct !== null && (
+      {ledger.length > 0 && status && bandPct !== null && (
         <section className="receipt">
           <div className="receipt-copy">
             <span className="eyebrow">The receipt</span>
-            <h2>Every cleared batch lands inside the band.</h2>
+            <h2>Every cleared batch landed inside the band.</h2>
             <p>
               The settlement contract rejects any clearing price more than ±
               {bandPct.toFixed(2)}% from Flare's FTSO XRP/USD feed. Here are the
-              last {ledger.length} batches, plotted against that band.
+              last {ledger.length} batches to cross, plotted against that band.
             </p>
             <button className="btn primary" onClick={onEnter}>
               See the live venue
             </button>
           </div>
           <div className="receipt-chart">
-            <div className="receipt-scale">
-              <span>−{bandPct.toFixed(2)}%</span>
-              <span>FTSO {oracle.toFixed(4)}</span>
-              <span>+{bandPct.toFixed(2)}%</span>
-            </div>
-            {ledger.map((s) => {
-              const price = Number(formatUnits(s.clearingPrice, 18));
-              const half = oracle * (bandPct / 100);
-              const rel = half === 0 ? 0 : (price - oracle) / half;
-              const pos = Math.min(94, Math.max(6, 50 + rel * 50));
-              const max = ledger.reduce(
-                (m, x) => (x.matchedBase > m ? x.matchedBase : m),
-                1n,
-              );
-              const dot =
-                10 +
-                Math.round((Number((s.matchedBase * 100n) / max) / 100) * 12);
-              return (
-                <div className="receipt-row" key={s.batchId}>
-                  <span className="receipt-batch">#{s.batchId}</span>
-                  <span className="ledger-track">
-                    <span
-                      className="ledger-dot"
-                      style={{
-                        left: `${pos.toFixed(1)}%`,
-                        width: dot,
-                        height: dot,
-                      }}
-                    />
-                  </span>
-                  <span className="ledger-price">{price.toFixed(4)}</span>
-                </div>
-              );
-            })}
-            <p className="receipt-note">
-              Dot size = matched volume. Not one batch outside the band.
-            </p>
+            <SettlementsLedger
+              settlements={ledger}
+              tokens={tokens}
+              referencePrice={status.referencePrice}
+              maxDeviationBps={status.maxDeviationBps}
+              compact
+            />
           </div>
         </section>
       )}

@@ -43,11 +43,10 @@ async function main(): Promise<void> {
   }
 
   const pollMs = Number(process.env.POLL_MS ?? 5000);
-  const maxDeviationBps = await client.maxDeviationBps();
 
   for (;;) {
     try {
-      await withRetry(() => tick(client, keypair, maxDeviationBps));
+      await withRetry(() => tick(client, keypair));
     } catch (err) {
       console.error("tick failed:", err instanceof Error ? err.message : err);
     }
@@ -68,11 +67,7 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
   throw last;
 }
 
-async function tick(
-  client: PoolClient,
-  keypair: EnclaveKeypair,
-  maxDeviationBps: bigint
-): Promise<void> {
+async function tick(client: PoolClient, keypair: EnclaveKeypair): Promise<void> {
   const info = await client.batchInfo();
 
   if (info.phase === Phase.Open) {
@@ -84,9 +79,15 @@ async function tick(
     return;
   }
 
-  const events = await client.fetchSealedOrders(info.id);
+  const events = await client.fetchSealedOrders(info.id, info.orders);
+  if (events.length < info.orders) {
+    console.warn(
+      `batch ${info.id}: found ${events.length} of ${info.orders} sealed orders in scan range`
+    );
+  }
   const balances = await client.venueBalances(events.map((e) => e.trader));
   const referencePrice = await client.referencePrice();
+  const maxDeviationBps = await client.maxDeviationBps();
 
   const { result, accepted, dropped } = settleFromEvents(
     events,

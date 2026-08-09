@@ -1,37 +1,126 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { Phase } from "../abi/pool";
+import { useCountdown } from "../hooks/useCountdown";
+import { useVenueClient } from "../hooks/useVenueClient";
 import { shortHex } from "../lib/format";
+import { explorerTxUrl } from "../lib/network";
+import { parsePrice, priceToNumber } from "../lib/price";
 import { sealOrder } from "../lib/sealing";
-import type { LocalOrder, PoolTokens, VenueStatus } from "../types";
+import type { Balances, LocalOrder, PoolTokens, VenueStatus } from "../types";
+
+const CLOSE_GUARD_SECONDS = 12;
+
+interface Draft {
+  amountBase: bigint;
+  limitPrice: bigint;
+}
+
+const PRICE_SCALE = 10n ** 18n;
+
+function ceilCost(amountBase: bigint, price: bigint): bigint {
+  return (amountBase * price + PRICE_SCALE - 1n) / PRICE_SCALE;
+}
+
+function readDraft(
+  amount: string,
+  limit: string,
+  side: "buy" | "sell",
+  tokens: PoolTokens,
+  status: VenueStatus,
+  balances: Balances | null,
+): { draft: Draft; problem: null } | { draft: null; problem: string | null } {
+  if (!amount.trim() || !limit.trim()) return { draft: null, problem: null };
+
+  let amountBase: bigint;
+  let limitPrice: bigint;
+  try {
+    amountBase = parseUnits(amount, tokens.baseDecimals);
+    limitPrice = parsePrice(limit, tokens);
+  } catch {
+    return { draft: null, problem: "Enter a plain decimal number, e.g. 1000.5" };
+  }
+
+  if (amountBase <= 0n) {
+    return {
+      draft: null,
+      problem: `Amount rounds to zero — ${tokens.baseSymbol} has ${tokens.baseDecimals} decimals`,
+    };
+  }
+  if (limitPrice <= 0n) return { draft: null, problem: "Limit price must be above zero" };
+
+  if (status.referencePrice != null && status.referencePrice > 0n) {
+    const bps = status.maxDeviationBps;
+    const lo = (status.referencePrice * (10_000n - bps)) / 10_000n;
+    const hi = (status.referencePrice * (10_000n + bps)) / 10_000n;
+    const unfillable = side === "buy" ? limitPrice < lo : limitPrice > hi;
+    if (unfillable) {
+      const band = (Number(bps) / 100).toFixed(2);
+      return {
+        draft: null,
+        problem: `Outside the ±${band}% FTSO band — this order could never clear`,
+      };
+    }
+  }
+
+  if (balances) {
+    if (side === "buy") {
+      const cost = ceilCost(amountBase, limitPrice);
+      if (balances.venueQuote < cost) {
+        return {
+          draft: null,
+          problem: `Needs ${fmt(cost, tokens.quoteDecimals)} ${tokens.quoteSymbol} in the venue — deposit more first`,
+        };
+      }
+    } else if (balances.venueBase < amountBase) {
+      return {
+        draft: null,
+        problem: `Needs ${fmt(amountBase, tokens.baseDecimals)} ${tokens.baseSymbol} in the venue — deposit more first`,
+      };
+    }
+  }
+
+  return { draft: { amountBase, limitPrice }, problem: null };
+}
+
+function fmt(v: bigint, decimals: number): string {
+  return Number(formatUnits(v, decimals)).toLocaleString(undefined, {
+    maximumFractionDigits: 4,
+  });
+}
 
 export function OrderTicket(props: {
   tokens: PoolTokens | undefined;
   status: VenueStatus | null;
+  balances: Balances | null;
   orders: LocalOrder[];
   busy: string | null;
   trader: string;
   onSubmit: (side: "buy" | "sell", amount: string, limit: string) => void;
 }) {
-  const { tokens, status, orders, busy, trader, onSubmit } = props;
+  const { tokens, status, balances, orders, busy, trader, onSubmit } = props;
+  const { chainId } = useVenueClient();
+  const remaining = useCountdown(status);
   const [side, setSide] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [limit, setLimit] = useState("");
   const [cipher, setCipher] = useState<string | null>(null);
 
-  const notional = useMemo(() => {
-    const a = Number(amount);
-    const l = Number(limit);
-    if (!Number.isFinite(a) || !Number.isFinite(l) || a <= 0 || l <= 0) return null;
-    return a * l;
-  }, [amount, limit]);
+  const { draft, problem } = useMemo(
+    () =>
+      tokens && status
+        ? readDraft(amount, limit, side, tokens, status, balances)
+        : { draft: null, problem: null },
+    [amount, limit, side, tokens, status, balances],
+  );
 
-  const baseDecimals = tokens?.baseDecimals;
   const batchId = status?.batchId;
   const enclaveKey = status?.enclaveKey;
+  const amountBase = draft?.amountBase;
+  const limitPrice = draft?.limitPrice;
 
   useEffect(() => {
-    if (notional === null || baseDecimals === undefined || batchId === undefined || !enclaveKey) {
+    if (amountBase === undefined || limitPrice === undefined || batchId === undefined || !enclaveKey) {
       setCipher(null);
       return;
     }
@@ -43,10 +132,10 @@ export function OrderTicket(props: {
             trader,
             batchId,
             side,
-            amountBase: parseUnits(amount, baseDecimals).toString(),
-            limitPrice: parseUnits(limit, 18).toString(),
+            amountBase: amountBase.toString(),
+            limitPrice: limitPrice.toString(),
           },
-          enclaveKey
+          enclaveKey,
         );
         if (!cancelled) setCipher(hex);
       } catch {
@@ -57,23 +146,23 @@ export function OrderTicket(props: {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [amount, limit, side, notional, trader, batchId, enclaveKey, baseDecimals]);
+  }, [amountBase, limitPrice, side, trader, batchId, enclaveKey]);
 
   if (!tokens || !status) {
     return (
       <section className="panel ticket">
-        <h2>Trade</h2>
-        <p className="note">Connect a wallet and pool to seal an order.</p>
+        <h2>Seal order</h2>
+        <p className="note">Connect a wallet and venue to seal an order.</p>
       </section>
     );
   }
 
   const open = status.phase === Phase.Open;
-  const canSubmit = open && notional !== null && busy === null;
+  const closingSoon = open && remaining <= CLOSE_GUARD_SECONDS;
+  const canSubmit =
+    open && !closingSoon && draft !== null && cipher !== null && busy === null;
   const oracle =
-    status.referencePrice != null
-      ? Number(formatUnits(status.referencePrice, 18))
-      : null;
+    status.referencePrice != null ? priceToNumber(status.referencePrice, tokens) : null;
 
   return (
     <section className="panel ticket panel-focus">
@@ -152,13 +241,24 @@ export function OrderTicket(props: {
         </span>
       </label>
 
+      {problem && (
+        <p className="field-problem" role="alert">
+          {problem}
+        </p>
+      )}
+
       <div className="summary rows">
         <div className="row">
           <span className="label">{side === "buy" ? "Max cost" : "Min proceeds"}</span>
           <span className="mono">
-            {notional === null
+            {draft === null
               ? "—"
-              : `${notional.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${tokens.quoteSymbol}`}
+              : `${fmt(
+                  side === "buy"
+                    ? ceilCost(draft.amountBase, draft.limitPrice)
+                    : (draft.amountBase * draft.limitPrice) / PRICE_SCALE,
+                  tokens.quoteDecimals,
+                )} ${tokens.quoteSymbol}`}
           </span>
         </div>
         <div className="row">
@@ -172,7 +272,7 @@ export function OrderTicket(props: {
         {cipher && (
           <div className="cipher-preview">
             <div className="cipher-head">
-              <span className="label">What the chain will see</span>
+              <span className="label">On chain, your order looks like</span>
               <span className="cipher-live">live</span>
             </div>
             <p className="cipher-body mono">{cipher.slice(0, 96)}…</p>
@@ -187,29 +287,47 @@ export function OrderTicket(props: {
       >
         {busy === "submit"
           ? "Sealing…"
-          : open
-            ? `Seal ${side} into batch #${status.batchId}`
-            : "Batch is clearing — wait for next window"}
+          : !open
+            ? "Batch is clearing — wait for next window"
+            : closingSoon
+              ? "Window closing — wait for the next batch"
+              : `Seal ${side} into batch #${status.batchId}`}
       </button>
 
       {orders.length > 0 && (
         <>
           <h3>Your sealed orders</h3>
           <div className="orders">
-            {orders.slice(0, 6).map((o) => (
-              <div className={`order ${o.side}`} key={o.at}>
-                <div className="order-line">
-                  <span className={`pill ${o.side}`}>{o.side.toUpperCase()}</span>
-                  <span className="mono">
-                    {o.amount} {tokens.baseSymbol} @ {o.limit}
-                  </span>
-                  <span className="mono dim">batch #{o.batchId}</span>
+            {orders.slice(0, 6).map((o) => {
+              const txUrl = o.tx ? explorerTxUrl(chainId, o.tx) : null;
+              return (
+                <div className={`order ${o.side}`} key={o.at}>
+                  <div className="order-line">
+                    <span className={`pill ${o.side}`}>{o.side.toUpperCase()}</span>
+                    <span className="mono">
+                      {o.amount} {tokens.baseSymbol} @ {o.limit}
+                    </span>
+                    <span className="mono dim">
+                      batch #{o.batchId}
+                      {o.batchId < status.batchId ? " · settled" : ""}
+                    </span>
+                    {txUrl && (
+                      <a
+                        className="mono dim"
+                        href={txUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        tx
+                      </a>
+                    )}
+                  </div>
+                  <div className="order-cipher mono" title={o.ciphertext}>
+                    {shortHex(o.ciphertext, 24)}
+                  </div>
                 </div>
-                <div className="order-cipher mono" title={o.ciphertext}>
-                  {shortHex(o.ciphertext, 24)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

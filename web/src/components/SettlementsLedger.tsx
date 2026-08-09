@@ -1,4 +1,4 @@
-import { formatUnits } from "viem";
+import { priceToNumber } from "../lib/price";
 import type { PoolTokens, Settlement } from "../types";
 
 export function SettlementsLedger(props: {
@@ -6,8 +6,9 @@ export function SettlementsLedger(props: {
   tokens: PoolTokens | undefined;
   referencePrice: bigint | null;
   maxDeviationBps: bigint;
+  compact?: boolean;
 }) {
-  const { settlements, tokens, referencePrice, maxDeviationBps } = props;
+  const { settlements, tokens, referencePrice, maxDeviationBps, compact } = props;
 
   if (!tokens || settlements.length === 0 || referencePrice === null) {
     return (
@@ -20,7 +21,7 @@ export function SettlementsLedger(props: {
     );
   }
 
-  const oracle = Number(formatUnits(referencePrice, 18));
+  const oracle = priceToNumber(referencePrice, tokens);
   const bandPct = Number(maxDeviationBps) / 100;
   const half = oracle * (Number(maxDeviationBps) / 10000);
   const maxMatched = settlements.reduce(
@@ -29,26 +30,31 @@ export function SettlementsLedger(props: {
   );
 
   return (
-    <div className="ledger">
+    <div className={`ledger ${compact ? "is-compact" : ""}`}>
       <div className="ledger-row is-head">
         <span>Batch</span>
         <span className="ledger-scale">
           <span>−{bandPct.toFixed(2)}%</span>
-          <span>FTSO {oracle.toFixed(4)}</span>
+          <span>FTSO now {oracle.toFixed(4)}</span>
           <span>+{bandPct.toFixed(2)}%</span>
         </span>
         <span style={{ textAlign: "right" }}>Cleared at</span>
-        <span className="hide-sm" style={{ textAlign: "right" }}>
-          Matched
-        </span>
-        <span className="hide-sm" style={{ textAlign: "right" }}>
-          Fills
-        </span>
+        {!compact && (
+          <>
+            <span className="hide-sm" style={{ textAlign: "right" }}>
+              Matched
+            </span>
+            <span className="hide-sm" style={{ textAlign: "right" }}>
+              Fills
+            </span>
+          </>
+        )}
       </div>
 
       {settlements.map((s) => {
-        const price = Number(formatUnits(s.clearingPrice, 18));
+        const price = priceToNumber(s.clearingPrice, tokens);
         const rel = half === 0 ? 0 : (price - oracle) / half;
+        const drifted = Math.abs(rel) > 1;
         const pos = Math.min(94, Math.max(6, 50 + rel * 50));
         const ratio = Number((s.matchedBase * 100n) / maxMatched) / 100;
         const dot = 10 + Math.round(ratio * 12);
@@ -58,27 +64,30 @@ export function SettlementsLedger(props: {
             <span className="ledger-batch">#{s.batchId}</span>
             <span className="ledger-track">
               <span
-                className="ledger-dot"
-                style={{
-                  left: `${pos.toFixed(1)}%`,
-                  width: dot,
-                  height: dot,
-                }}
+                className={`ledger-dot ${drifted ? "is-drifted" : ""}`}
+                style={{ left: `${pos.toFixed(1)}%`, width: dot, height: dot }}
               />
             </span>
             <span className="ledger-price">{price.toFixed(4)}</span>
-            <span className="ledger-num hide-sm">
-              {Number(
-                formatUnits(s.matchedBase, tokens.baseDecimals),
-              ).toLocaleString(undefined, {
-                maximumFractionDigits: 0,
-              })}{" "}
-              {tokens.baseSymbol}
-            </span>
-            <span className="ledger-num dim hide-sm">{s.fillCount}</span>
+            {!compact && (
+              <>
+                <span className="ledger-num hide-sm">
+                  {Number(
+                    formatBase(s.matchedBase, tokens.baseDecimals),
+                  ).toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
+                  {tokens.baseSymbol}
+                </span>
+                <span className="ledger-num dim hide-sm">{s.fillCount}</span>
+              </>
+            )}
           </div>
         );
       })}
     </div>
   );
+}
+
+function formatBase(v: bigint, decimals: number): string {
+  const d = 10n ** BigInt(decimals);
+  return `${v / d}.${(v % d).toString().padStart(decimals, "0")}`;
 }

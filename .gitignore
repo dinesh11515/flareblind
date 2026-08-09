@@ -5,6 +5,7 @@ artifacts/
 typechain-types/
 dist/
 coverage/
+*.tsbuildinfo
 .DS_Store
 
 # local tool config

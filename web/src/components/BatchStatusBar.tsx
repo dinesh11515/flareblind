@@ -1,28 +1,46 @@
-import { formatUnits } from "viem";
+import { useEffect, useState } from "react";
 import { Phase } from "../abi/pool";
+import { useCountdown } from "../hooks/useCountdown";
+import { priceToNumber } from "../lib/price";
 import type { PoolTokens, VenueStatus } from "../types";
 
 export function BatchStatusBar(props: {
   status: VenueStatus | null;
   tokens: PoolTokens | undefined;
+  unreachable: boolean;
   busy: string | null;
   onCloseBatch: () => void;
 }) {
-  const { status, tokens, busy, onCloseBatch } = props;
+  const { status, tokens, unreachable, busy, onCloseBatch } = props;
+  const [confirmClose, setConfirmClose] = useState(false);
+  const remaining = useCountdown(status);
+
+  useEffect(() => {
+    setConfirmClose(false);
+  }, [status?.batchId, status?.phase]);
 
   if (!status || !tokens) {
     return (
-      <section className="batch-bar skeleton" aria-busy="true">
-        <p className="note">Loading batch…</p>
+      <section className="batch-bar skeleton" aria-busy={!unreachable}>
+        <p className="note">
+          {unreachable
+            ? "No venue at that address on this network. Check the pool contract in Market."
+            : "Loading batch…"}
+        </p>
       </section>
     );
   }
 
-  const remaining = Number(status.endsAt - status.chainNow);
   const open = status.phase === Phase.Open;
-  const closable = open && remaining <= 0;
+  const elapsed = remaining <= 0;
+  const closable = open && elapsed;
+  const duration = Number(status.batchDuration) || 1;
+  const progress = open
+    ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))
+    : 100;
+
   const phaseLabel = open
-    ? remaining <= 0
+    ? elapsed
       ? "Window ended — ready to close"
       : "Accepting sealed orders"
     : "Matching in the enclave";
@@ -50,11 +68,11 @@ export function BatchStatusBar(props: {
         </div>
 
         <div className="batch-bar-timer">
-          <span className="batch-label">{open ? "Closes in" : "Status"}</span>
-          <span
-            className={`countdown mono ${open && remaining <= 15 ? "urgent" : ""}`}
-          >
-            {open ? formatCountdown(remaining) : "Matching…"}
+          <span className="batch-label">
+            {!open ? "Status" : elapsed ? "Window" : "Closes in"}
+          </span>
+          <span className={`countdown mono ${open && remaining <= 15 ? "urgent" : ""}`}>
+            {!open ? "Matching…" : elapsed ? "Elapsed" : formatCountdown(remaining)}
           </span>
         </div>
       </div>
@@ -74,27 +92,38 @@ export function BatchStatusBar(props: {
           <div className="stat">
             <span className="batch-label">Oracle</span>
             <span className="mono">
-              {Number(formatUnits(status.referencePrice, 18)).toFixed(4)}{" "}
+              {priceToNumber(status.referencePrice, tokens).toFixed(4)}{" "}
               {tokens.quoteSymbol}
             </span>
           </div>
         )}
         {closable && (
           <button
-            className="btn primary sm"
-            onClick={onCloseBatch}
+            className={`btn sm ${confirmClose ? "primary" : "ghost"}`}
+            onClick={() => (confirmClose ? onCloseBatch() : setConfirmClose(true))}
             disabled={busy !== null}
           >
-            {busy === "close" ? "Closing…" : "Close batch"}
+            {busy === "close"
+              ? "Closing…"
+              : confirmClose
+                ? "Confirm close"
+                : "Close batch"}
           </button>
         )}
       </div>
+
+      {closable && confirmClose && (
+        <p className="note batch-warning">
+          Closing freezes withdrawals until the enclave settles this batch. Only
+          do this if the matching engine is running.
+        </p>
+      )}
 
       <div
         className={`batch-progress ${open ? "is-open" : "is-sealing"}`}
         aria-hidden="true"
       >
-        <div className="batch-progress-fill" />
+        <div className="batch-progress-fill" style={{ width: `${progress}%` }} />
       </div>
     </section>
   );
