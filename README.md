@@ -63,18 +63,31 @@ hardhat node, asserting the settled balances to the wei.
 Tests: `npm test` in `contracts/` (19) and in `engine/` (24).
 `npm run typecheck` in `engine/` and `web/`.
 
-## Status
+## Live demo (Coston2)
 
-Built during [Flare Summer Signal](https://dorahacks.io/hackathon/flaresummersignal)
-(June–August 2026). Deployed to Coston2 against the real FTSOv2 XRP/USD feed,
-trading FTestXRP against USD₮0:
+**App:** https://flareblind.vercel.app/venue
+
+Connect a wallet on **Coston2** (chain 114). Get C2FLR from the
+[Flare faucet](https://faucet.flare.network/coston2) and FTestXRP / USD₮0 from
+the FAssets faucet, then:
+
+1. Deposit into the venue
+2. Seal a **buy** and a **sell** in the same batch (same clearing window)
+3. Wait ~5 minutes for the engine to close and settle the batch
+
+A single-sided order clears with zero fills — the batch auction needs both sides
+to cross.
 
 | | |
 | --- | --- |
 | Pool | [`0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0`](https://coston2-explorer.flare.network/address/0xaB54f8a32c9ca36A12f507649bf66916b20bD2b0) |
-| Oracle adapter | [`0x609328dFA6066E43b5B3e15A7ad103Ba7985116B`](https://coston2-explorer.flare.network/address/0x609328dFA6066E43b5B3e15A7ad103Ba7985116B) |
+| FTSOv2 adapter | [`0x609328dFA6066E43b5B3e15A7ad103Ba7985116B`](https://coston2-explorer.flare.network/address/0x609328dFA6066E43b5B3e15A7ad103Ba7985116B) |
+| Base (FTestXRP) | `0x0b6A3645c240605887a5532109323A3E12273dc7` |
+| Quote (USD₮0) | `0xC1A5B41512496B80903D1f32d6dEa3a73212E71F` |
 
-Addresses and the registered enclave keys are in
-[deployments/coston2.json](deployments/coston2.json). The engine runs in dev
-mode today; moving it into GCP Confidential Space, so the attestation digest
-onchain is a real Intel TDX token, is the next step.
+Full deployment metadata: [deployments/coston2.json](deployments/coston2.json).
+Matching engine runs on Railway (dev attestation mode); GCP Confidential Space
+with Intel TDX attestation is the production path.
+
+Built for [Flare Summer Signal](https://dorahacks.io/hackathon/flaresummersignal)
+(June–August 2026).
