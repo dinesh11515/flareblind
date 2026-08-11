@@ -67,6 +67,8 @@ Tests: `npm test` in `contracts/` (19) and in `engine/` (24).
 
 **App:** https://flareblind.vercel.app/venue
 
+**Walkthrough:** https://www.loom.com/share/c4f206d3fdf44d559f6c7fce767a9092
+
 Connect a wallet on **Coston2** (chain 114). Get C2FLR from the
 [Flare faucet](https://faucet.flare.network/coston2) and FTestXRP / USD₮0 from
 the FAssets faucet, then:
